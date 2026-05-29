@@ -1,6 +1,6 @@
 # Architecture
 
-This directory contains the Phase 1 architecture artifacts for FactCheck AI.
+This directory contains the architecture artifacts for FactCheck AI.
 
 ## Documents
 
@@ -8,6 +8,6 @@ This directory contains the Phase 1 architecture artifacts for FactCheck AI.
 - `[state-schema.md](state-schema.md)` — frozen shared state schema for all later agents.
 - `[api-and-sse-contract.md](api-and-sse-contract.md)` — REST and SSE contract planned for Phase 6.
 
-## Phase 1 Boundary
+## Current Boundary
 
-Phase 1 defines the architecture and runnable foundation. It does not implement claim extraction, evidence retrieval, verdict generation, dialogue, persistence, SSE streaming, or the final frontend.
+Phase 2 implements claim extraction and prepares the reusable search fallback layer. Evidence retrieval in the Verifier Agent, verdict generation, dialogue, persistence, SSE streaming, and the final frontend remain later phases.

@@ -3,18 +3,39 @@
 from __future__ import annotations
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
+from app.routers import dev_stream
+from factcheck.config import AppSettings, get_settings
 from factcheck.llm.ollama import check_ollama_health
 
 
-app = FastAPI(title="FactCheck AI", version="0.1.0")
+def _parse_cors_origins(origins: str) -> list[str]:
+    return [origin.strip() for origin in origins.split(",") if origin.strip()]
 
 
-@app.get("/api/health")
-async def health() -> dict[str, bool | str]:
-    """Return backend and Ollama health information."""
+def create_app(settings: AppSettings | None = None) -> FastAPI:
+    """Create the FastAPI application with optional dev-only routes."""
 
-    return await build_health_payload()
+    resolved_settings = settings or get_settings()
+    app = FastAPI(title="FactCheck AI", version="0.1.0")
+
+    if resolved_settings.dev_stream_enabled:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=_parse_cors_origins(resolved_settings.dev_cors_origins),
+            allow_methods=["GET", "POST", "OPTIONS"],
+            allow_headers=["*"],
+        )
+        app.include_router(dev_stream.router)
+
+    @app.get("/api/health")
+    async def health() -> dict[str, bool | str]:
+        """Return backend and Ollama health information."""
+
+        return await build_health_payload()
+
+    return app
 
 
 async def build_health_payload() -> dict[str, bool | str]:
@@ -28,3 +49,6 @@ async def build_health_payload() -> dict[str, bool | str]:
         "ollama_base_url": str(ollama["base_url"]),
         "ollama_model": str(ollama["model"]),
     }
+
+
+app = create_app()

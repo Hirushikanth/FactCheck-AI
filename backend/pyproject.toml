@@ -18,6 +18,8 @@ httpx = "^0.27.0"
 langgraph = "^0.2.0"
 langchain-core = "^0.3.0"
 langchain-ollama = "^0.2.0"
+nltk = "^3.9.4"
+duckduckgo-search = "^8.1.1"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.0.0"
@@ -31,6 +33,9 @@ build-backend = "poetry.core.masonry.api"
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+markers = [
+    "integration: tests that call external local services such as Ollama",
+]
 filterwarnings = [
     "ignore:'asyncio\\.iscoroutinefunction' is deprecated:DeprecationWarning",
     "ignore:'asyncio\\.get_event_loop_policy' is deprecated:DeprecationWarning",
