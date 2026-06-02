@@ -49,6 +49,9 @@ async def validation_node(state: ExtractorState) -> dict[str, list[ValidatedClai
     if not state.potential_claims:
         return {"validated_claims": []}
 
+    # asyncio.gather schedules all coroutines concurrently, but the semaphore
+    # inside call_llm_with_structured_output (factcheck.llm.concurrency) means
+    # at most OLLAMA_CONCURRENCY requests reach Ollama at any one time.
     validation_results = await asyncio.gather(
         *(_validate_claim(claim) for claim in state.potential_claims)
     )

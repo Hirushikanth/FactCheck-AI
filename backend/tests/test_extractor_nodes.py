@@ -10,14 +10,7 @@ from factcheck.extractor.nodes.validation import ValidationOutput, validation_no
 from factcheck.extractor.schemas import ContextualSentence, ExtractorState, PotentialClaim, SelectedContent
 
 
-async def test_sentence_splitter_builds_context_windows(monkeypatch) -> None:
-    monkeypatch.setattr(sentence_splitter, "ensure_nltk_resources", lambda: None)
-    monkeypatch.setattr(
-        sentence_splitter.nltk,
-        "sent_tokenize",
-        lambda paragraph: [part.strip() + "." for part in paragraph.split(".") if part.strip()],
-    )
-
+async def test_sentence_splitter_builds_context_windows() -> None:
     items = await _sentence_splitter_and_context_creator(
         "Ada wrote the first algorithm. She worked with Charles Babbage. It was published later.",
         p_sentences=1,
@@ -33,26 +26,6 @@ async def test_sentence_splitter_builds_context_windows(monkeypatch) -> None:
     assert "Ada wrote the first algorithm." in items[1].context_for_llm
     assert "[Following Sentences:]" in items[1].context_for_llm
     assert "It was published later." in items[1].context_for_llm
-
-
-def test_ensure_nltk_resources_downloads_each_missing_resource(monkeypatch) -> None:
-    downloads: list[str] = []
-
-    def fake_find(resource: str):
-        if resource == "tokenizers/punkt":
-            return object()
-        raise LookupError(resource)
-
-    monkeypatch.setattr(sentence_splitter.nltk.data, "find", fake_find)
-    monkeypatch.setattr(
-        sentence_splitter.nltk,
-        "download",
-        lambda resource, quiet: downloads.append(resource),
-    )
-
-    sentence_splitter.ensure_nltk_resources()
-
-    assert downloads == ["punkt_tab"]
 
 
 async def test_validation_node_filters_invalid_and_duplicate_claims(monkeypatch) -> None:
@@ -122,3 +95,23 @@ async def test_disambiguation_passes_through_self_contained_sentence(monkeypatch
 
     assert success is True
     assert sentence == "Ada Lovelace wrote notes about Charles Babbage's Analytical Engine."
+
+
+async def test_pysbd_sentence_splitting_handles_complex_abbreviations() -> None:
+    text = "Dr. Smith works at OpenAI Inc. in London. He is a senior scientist."
+    items = await _sentence_splitter_and_context_creator(text, p_sentences=0, f_sentences=0)
+
+    assert [item.original_sentence for item in items] == [
+        "Dr. Smith works at OpenAI Inc. in London.",
+        "He is a senior scientist.",
+    ]
+
+
+async def test_pysbd_sentence_splitting_handles_washington_dc() -> None:
+    text = "Dr. Smith works at OpenAI Inc. in Washington D.C. He joined in 2024."
+    items = await _sentence_splitter_and_context_creator(text, p_sentences=0, f_sentences=0)
+
+    assert [item.original_sentence for item in items] == [
+        "Dr. Smith works at OpenAI Inc. in Washington D.C.",
+        "He joined in 2024.",
+    ]

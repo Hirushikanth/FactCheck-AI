@@ -11,6 +11,8 @@ from typing import TypeVar
 from langchain_core.language_models.chat_models import BaseChatModel
 from pydantic import BaseModel, ValidationError
 
+from factcheck.llm.concurrency import get_ollama_semaphore
+
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +53,8 @@ async def call_llm_with_structured_output(
     """Call a chat model and parse its response into a Pydantic model."""
 
     try:
-        response = await llm.with_structured_output(output_class).ainvoke(list(messages))
+        async with get_ollama_semaphore():
+            response = await llm.with_structured_output(output_class).ainvoke(list(messages))
         if response is None:
             raise ValueError("structured output returned None")
         return response
@@ -67,7 +70,8 @@ async def call_llm_with_structured_output(
         )
     ]
     try:
-        response = await llm.with_structured_output(output_class).ainvoke(retry_messages)
+        async with get_ollama_semaphore():
+            response = await llm.with_structured_output(output_class).ainvoke(retry_messages)
         if response is None:
             raise ValueError("structured output retry returned None")
         return response
@@ -88,7 +92,8 @@ async def call_llm_with_structured_output(
             )
         ]
         try:
-            diagnostic_response = await llm.ainvoke(fallback_messages)
+            async with get_ollama_semaphore():
+                diagnostic_response = await llm.ainvoke(fallback_messages)
             diagnostic_text = _message_text(diagnostic_response)
             diagnostic_json = _parse_json_object(diagnostic_text)
             if diagnostic_json is None:

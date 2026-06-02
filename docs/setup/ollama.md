@@ -45,6 +45,14 @@ OLLAMA_MODEL=qwen2.5:3b
 
 For reliability, reserve the Windows PC IP address in the router DHCP settings or configure a static IP.
 
+## Concurrency
+
+Keep `OLLAMA_CONCURRENCY=1` for a MacBook or consumer GPU. The backend may still schedule extractor work with `asyncio.gather`, but every Ollama request is capped at the HTTP layer so only one local model request runs at a time.
+
+Try `OLLAMA_CONCURRENCY=2` only on high-VRAM hardware, such as a 24 GB+ GPU or a remote LAN host with enough memory for multiple model contexts. Higher values can cause VRAM thrashing or out-of-memory failures.
+
+Voting stages run repeated completions sequentially. If a stage uses `completions=3`, expect roughly three serial Ollama calls for that sentence; this is slower but keeps local inference predictable.
+
 ## Smoke Test
 
 From the backend virtual environment:

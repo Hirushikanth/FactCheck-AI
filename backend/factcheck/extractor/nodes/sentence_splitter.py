@@ -1,10 +1,22 @@
-"""Sentence splitting and context-window creation for claim extraction."""
+"""Sentence splitting and context-window creation for claim extraction.
+
+Uses ``pysbd`` (Pragmatic Sentence Boundary Detector) instead of NLTK's
+Punkt tokenizer.  pysbd is a rule-based segmenter that correctly handles:
+
+* Abbreviations  — "Dr. Smith", "Inc.", "U.S.A.", "D.C."
+* Decimal numbers — "version 3.14 released"
+* URLs / e-mail — "visit https://example.com. Click here."
+* Parenthetical fragments — often produced by web scrapers
+
+No corpus downloads or model loading are required.
+"""
 
 from __future__ import annotations
 
 import logging
+import re
 
-import nltk
+import pysbd
 
 from factcheck.extractor.config import CONTEXT_WINDOWS
 from factcheck.extractor.schemas import ContextualSentence, ExtractorState
@@ -12,21 +24,40 @@ from factcheck.extractor.schemas import ContextualSentence, ExtractorState
 
 logger = logging.getLogger(__name__)
 
+# Module-level segmenter — pysbd.Segmenter is stateless and cheap to create,
+# but there is no reason to rebuild it on every call.
+_segmenter = pysbd.Segmenter(language="en", clean=False)
+_KNOWN_ABBREVIATION_BOUNDARY_RE = re.compile(r"\b(D\.C\.)\s+(?=[A-Z][a-z])")
 
-def ensure_nltk_resources() -> None:
-    """Ensure the Punkt sentence tokenizer is available."""
 
-    resource_names = {"tokenizers/punkt_tab": "punkt_tab", "tokenizers/punkt": "punkt"}
-    missing_resources: list[str] = []
-    for resource, download_name in resource_names.items():
-        try:
-            nltk.data.find(resource)
-        except LookupError:
-            missing_resources.append(download_name)
+def _split_known_sentence_final_abbreviations(sentence: str) -> list[str]:
+    """Split cases pysbd keeps together after sentence-final abbreviations."""
 
-    for resource in missing_resources:
-        logger.info("Downloading NLTK resource %s for sentence splitting", resource)
-        nltk.download(resource, quiet=True)
+    parts: list[str] = []
+    start = 0
+    for match in _KNOWN_ABBREVIATION_BOUNDARY_RE.finditer(sentence):
+        parts.append(sentence[start : match.end(1)].strip())
+        start = match.end()
+    parts.append(sentence[start:].strip())
+    return [part for part in parts if part]
+
+
+def _split_sentences(text: str) -> list[str]:
+    """Split *text* into sentences using pysbd.
+
+    pysbd operates per-paragraph.  We split on blank lines first so that
+    paragraph boundaries are always honoured, then apply the segmenter to each
+    paragraph independently and collect the results.
+    """
+    sentences: list[str] = []
+    for paragraph in text.split("\n"):
+        paragraph = paragraph.strip()
+        if not paragraph:
+            continue
+        # pysbd may return segments with leading/trailing whitespace.
+        for segment in _segmenter.segment(paragraph):
+            sentences.extend(_split_known_sentence_final_abbreviations(segment.strip()))
+    return sentences
 
 
 async def _sentence_splitter_and_context_creator(
@@ -37,22 +68,20 @@ async def _sentence_splitter_and_context_creator(
     include_metadata: bool = False,
     metadata: str | None = None,
 ) -> list[ContextualSentence]:
-    """Split text into contextual sentence windows."""
+    """Split *answer_text* into contextual sentence windows."""
 
-    ensure_nltk_resources()
-    paragraphs = [paragraph.strip() for paragraph in answer_text.split("\n") if paragraph.strip()]
+    raw_sentences = _split_sentences(answer_text)
 
-    raw_sentences: list[str] = []
-    for paragraph in paragraphs:
-        raw_sentences.extend(nltk.sent_tokenize(paragraph))
-
+    # Merge fragments shorter than 5 characters (e.g. stray initials that
+    # slipped through) into the next sentence so the LLM always receives
+    # something meaningful.
     merged_sentences: list[str] = []
     index = 0
     while index < len(raw_sentences):
-        sentence = raw_sentences[index].strip()
+        sentence = raw_sentences[index]
         while len(sentence) < 5 and index + 1 < len(raw_sentences):
             index += 1
-            sentence = f"{sentence} {raw_sentences[index].strip()}".strip()
+            sentence = f"{sentence} {raw_sentences[index]}".strip()
         if sentence:
             merged_sentences.append(sentence)
         index += 1
@@ -99,3 +128,4 @@ async def sentence_splitter_node(state: ExtractorState) -> dict[str, list[Contex
         metadata=state.metadata,
     )
     return {"contextual_sentences": contextual_sentences}
+

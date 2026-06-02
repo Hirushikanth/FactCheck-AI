@@ -64,6 +64,10 @@ async def decomposition_node(state: ExtractorState) -> dict[str, list[PotentialC
     if not state.disambiguated_contents:
         return {"potential_claims": []}
 
+    # asyncio.gather schedules all coroutines concurrently, but the semaphore
+    # inside call_llm_with_structured_output (factcheck.llm.concurrency) means
+    # at most OLLAMA_CONCURRENCY requests hit the server at once.  The gather
+    # itself is safe — idle coroutines just wait on the semaphore.
     claims = await asyncio.gather(
         *(_decomposition_stage(item) for item in state.disambiguated_contents)
     )

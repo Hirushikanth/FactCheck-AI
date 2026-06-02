@@ -8,6 +8,7 @@ def test_settings_defaults_support_local_ollama(monkeypatch) -> None:
         "OLLAMA_TEMPERATURE",
         "OLLAMA_TIMEOUT",
         "OLLAMA_MAX_RETRIES",
+        "OLLAMA_CONCURRENCY",
         "SEARCH_MAX_RESULTS",
         "SEARCH_PROVIDER_ORDER",
         "TAVILY_API_KEY",
@@ -21,10 +22,11 @@ def test_settings_defaults_support_local_ollama(monkeypatch) -> None:
     settings = AppSettings(_env_file=None)
 
     assert str(settings.ollama_base_url) == "http://localhost:11434"
-    assert settings.ollama_model == "qwen2.5:3b"
+    assert settings.ollama_model == "mistral:7b"
     assert settings.ollama_temperature == 0.0
     assert settings.ollama_timeout == 120
     assert settings.ollama_max_retries == 3
+    assert settings.ollama_concurrency == 1
     assert settings.search_max_results == 5
     assert settings.search_provider_order == "duckduckgo,tavily,serper"
     assert settings.tavily_api_key is None
@@ -34,3 +36,11 @@ def test_settings_defaults_support_local_ollama(monkeypatch) -> None:
         "http://localhost:5173,http://127.0.0.1:5173,http://localhost:8080"
     )
     assert settings.debug is False
+
+
+def test_ollama_concurrency_env_override(monkeypatch) -> None:
+    monkeypatch.setenv("OLLAMA_CONCURRENCY", "2")
+
+    settings = AppSettings(_env_file=None)
+
+    assert settings.ollama_concurrency == 2

@@ -16,10 +16,13 @@ class AppSettings(BaseSettings):
     """Runtime settings loaded from environment variables and backend/.env."""
 
     ollama_base_url: str = Field(default="http://localhost:11434")
-    ollama_model: str = "qwen2.5:3b"
+    ollama_model: str = "mistral:7b"
     ollama_temperature: float = 0.0
     ollama_timeout: int = 120
     ollama_max_retries: int = 3
+    # Maximum number of concurrent in-flight requests sent to Ollama.
+    # Keep at 1 for consumer GPUs; raise to 2 only on high-VRAM machines.
+    ollama_concurrency: int = Field(default=1, ge=1)
     search_max_results: int = 5
     search_provider_order: str = "duckduckgo,tavily,serper"
     tavily_api_key: str | None = None
