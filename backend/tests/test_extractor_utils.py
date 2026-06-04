@@ -23,7 +23,7 @@ class FakeStructuredLlm:
     def __init__(self, response):
         self.response = response
 
-    def with_structured_output(self, output_class):
+    def with_structured_output(self, output_class, **kwargs):
         return FakeStructuredInvoker(self.response)
 
 
@@ -44,7 +44,7 @@ class FlakyStructuredLlm:
     def __init__(self):
         self.invoker = FlakyStructuredInvoker()
 
-    def with_structured_output(self, output_class):
+    def with_structured_output(self, output_class, **kwargs):
         return self.invoker
 
 
@@ -63,7 +63,7 @@ class NoneThenValidStructuredLlm:
     def __init__(self):
         self.invoker = NoneThenValidStructuredInvoker()
 
-    def with_structured_output(self, output_class):
+    def with_structured_output(self, output_class, **kwargs):
         return self.invoker
 
 
@@ -77,7 +77,7 @@ class StructuredNonePlainJsonLlm:
         self.structured_invoker = StructuredNonePlainJsonInvoker()
         self.plain_messages = []
 
-    def with_structured_output(self, output_class):
+    def with_structured_output(self, output_class, **kwargs):
         return self.structured_invoker
 
     async def ainvoke(self, messages):

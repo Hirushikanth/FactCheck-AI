@@ -47,7 +47,7 @@ class CountingStructuredLlm:
     def __init__(self, tracker: ConcurrencyTracker) -> None:
         self.invoker = CountingStructuredInvoker(tracker)
 
-    def with_structured_output(self, output_class):
+    def with_structured_output(self, output_class, **kwargs):
         return self.invoker
 
 

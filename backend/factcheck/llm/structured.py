@@ -43,6 +43,11 @@ def _parse_json_object(text: str) -> dict[str, object] | None:
     return parsed if isinstance(parsed, dict) else None
 
 
+def _structured_llm(llm: BaseChatModel, output_class: type[M]):
+    # Ollama JSON mode (format="json"); schema shape still comes from prompts/retries.
+    return llm.with_structured_output(output_class, method="json_mode")
+
+
 async def call_llm_with_structured_output(
     *,
     llm: BaseChatModel,
@@ -54,7 +59,7 @@ async def call_llm_with_structured_output(
 
     try:
         async with get_ollama_semaphore():
-            response = await llm.with_structured_output(output_class).ainvoke(list(messages))
+            response = await _structured_llm(llm, output_class).ainvoke(list(messages))
         if response is None:
             raise ValueError("structured output returned None")
         return response
@@ -71,7 +76,7 @@ async def call_llm_with_structured_output(
     ]
     try:
         async with get_ollama_semaphore():
-            response = await llm.with_structured_output(output_class).ainvoke(retry_messages)
+            response = await _structured_llm(llm, output_class).ainvoke(retry_messages)
         if response is None:
             raise ValueError("structured output retry returned None")
         return response
