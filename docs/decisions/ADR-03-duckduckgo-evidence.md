@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted for later implementation.
+Accepted for later implementation. Amended by ADR-05 to keep DuckDuckGo as the primary provider while adding optional Tavily and Serper fallbacks.
 
 ## Decision
 

@@ -1,0 +1,59 @@
+"""Internal data models for the Claimify-style extractor."""
+
+from __future__ import annotations
+
+from pydantic import BaseModel, Field
+
+
+class ContextualSentence(BaseModel):
+    """A sentence paired with its local source context."""
+
+    original_sentence: str
+    context_for_llm: str
+    metadata: str | None = None
+    original_index: int
+
+
+class SelectedContent(BaseModel):
+    """Sentence content selected as potentially verifiable."""
+
+    processed_sentence: str
+    original_context_item: ContextualSentence
+
+
+class DisambiguatedContent(BaseModel):
+    """Selected content with resolvable ambiguity removed."""
+
+    disambiguated_sentence: str
+    original_selected_item: SelectedContent
+
+
+class PotentialClaim(BaseModel):
+    """A decomposed factual claim before final validation."""
+
+    claim_text: str
+    disambiguated_sentence: str
+    original_sentence: str
+    original_index: int
+
+
+class ValidatedClaim(BaseModel):
+    """A claim that is complete enough to pass to the verifier."""
+
+    claim_text: str
+    is_complete_declarative: bool
+    disambiguated_sentence: str
+    original_sentence: str
+    original_index: int
+
+
+class ExtractorState(BaseModel):
+    """State object used inside the extractor subgraph."""
+
+    raw_input: str
+    contextual_sentences: list[ContextualSentence] = Field(default_factory=list)
+    selected_contents: list[SelectedContent] = Field(default_factory=list)
+    disambiguated_contents: list[DisambiguatedContent] = Field(default_factory=list)
+    potential_claims: list[PotentialClaim] = Field(default_factory=list)
+    validated_claims: list[ValidatedClaim] = Field(default_factory=list)
+    metadata: str | None = None

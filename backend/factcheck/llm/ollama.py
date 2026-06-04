@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from typing import Any
 
+# pyrefly: ignore [missing-import]
 import httpx
+# pyrefly: ignore [missing-import]
 from langchain_ollama import ChatOllama
 
 from factcheck.config import AppSettings, get_settings

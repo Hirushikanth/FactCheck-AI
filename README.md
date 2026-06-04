@@ -2,22 +2,19 @@
 
 FactCheck AI is a locally deployed, conversational fact-checking system for a final year software engineering project. The system is designed around a LangGraph multi-agent pipeline, a FastAPI backend, and local LLM inference through Ollama.
 
-Phase 1 establishes the runnable foundation only: repository documentation, development toolchain checks, configurable Ollama connectivity, a frozen shared state contract, a minimal health endpoint, and a stub LangGraph pipeline.
+Phase 2 implements the extractor agent and prepares evidence-search fallback infrastructure. The extractor uses a Claimify-style subgraph to turn raw text into atomic, verifiable claims, while search is available as a reusable DuckDuckGo → Tavily → Serper fallback layer for the future verifier phase.
 
-## Phase 1 Scope
+## Phase 2 Scope
 
 In scope:
 
-- Architecture documentation and decision records.
-- Python 3.11+, Poetry, Node.js 20+, and Git verification.
-- Ollama connectivity for `qwen2.5:3b`.
-- Schema-first backend scaffold.
-- Minimal `GET /api/health` endpoint.
+- Claimify-style extractor subgraph: sentence splitting, selection, disambiguation, decomposition, and validation.
+- Main LangGraph integration that writes extracted claims into `FactCheckState`.
+- Search fallback module with DuckDuckGo primary and optional Tavily / Serper API fallbacks.
+- Tests for extractor nodes, graph wiring, search fallback behavior, and settings.
 
-Out of scope for Phase 1:
+Out of scope for Phase 2:
 
-- Claim extraction logic.
-- DuckDuckGo evidence retrieval.
 - Verdict generation.
 - Reporter and dialogue behavior.
 - SQLite persistence.
@@ -61,6 +58,17 @@ OLLAMA_BASE_URL=http://<windows-lan-ip>:11434
 
 See [`docs/setup/ollama.md`](docs/setup/ollama.md) for the full setup runbook.
 
+## Search Fallback Configuration
+
+DuckDuckGo is used first and does not require credentials. Tavily and Serper are only attempted when keys are configured:
+
+```bash
+SEARCH_MAX_RESULTS=5
+SEARCH_PROVIDER_ORDER=duckduckgo,tavily,serper
+TAVILY_API_KEY=
+SERPER_API_KEY=
+```
+
 ## Backend Quick Start
 
 ```bash
@@ -69,6 +77,18 @@ poetry install
 cp .env.example .env
 poetry run python ../scripts/smoke_ollama.py
 poetry run uvicorn app.main:app --reload
+```
+
+Run the extractor tests:
+
+```bash
+poetry run pytest tests/test_extractor_utils.py tests/test_extractor_nodes.py tests/test_extractor_graph.py tests/test_extractor_agent.py
+```
+
+Run the optional Ollama-backed extractor integration test:
+
+```bash
+RUN_OLLAMA_INTEGRATION=1 poetry run pytest tests/test_ollama_extractor_integration.py
 ```
 
 From another terminal:
@@ -97,8 +117,10 @@ Expected shape:
 │   └── factcheck/
 │       ├── agents/
 │       ├── config.py
+│       ├── extractor/
 │       ├── graph/
 │       ├── llm/
+│       ├── search/
 │       └── state.py
 ├── docs/
 │   ├── architecture/

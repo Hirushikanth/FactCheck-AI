@@ -19,9 +19,15 @@ flowchart TB
     API --> Pipeline[LangGraph Pipeline]
     Pipeline --> State[FactCheckState]
     Pipeline --> Ollama[Ollama Inference]
+    Pipeline --> Search[Search Fallback Layer]
     Ollama --> ModeA[MacBook localhost]
     Ollama --> ModeB[Windows LAN host]
+    Search --> DuckDuckGo[DuckDuckGo]
+    Search --> Tavily[Tavily Optional]
+    Search --> Serper[Serper Optional]
 ```
+
+
 
 ## Agent Pipeline
 
@@ -33,7 +39,23 @@ The planned pipeline contains five specialized agents:
 - Dialogue Agent: answers follow-up questions from session evidence only.
 - Orchestrator Agent: routes state through the graph and exposes progress.
 
-Phase 1 only creates the contracts and stubs for this pipeline. Agent business logic begins in Phase 2.
+Phase 2 implements the Extractor Agent. The Verifier, Reporter, Dialogue, persistence, SSE streaming, and frontend behavior remain future phases.
+
+## Extractor Subgraph
+
+The extractor is a sequential LangGraph subgraph adapted from ClaimeAI's Claimify-style approach:
+
+```mermaid
+flowchart LR
+    SentenceSplitter[sentence_splitter] --> Selection[selection]
+    Selection --> Disambiguation[disambiguation]
+    Disambiguation --> Decomposition[decomposition]
+    Decomposition --> Validation[validation]
+```
+
+
+
+Selection and disambiguation use voting for precision. Decomposition turns decontextualized sentences into atomic claims, and validation filters incomplete claim fragments before the main pipeline writes `extracted_claims`.
 
 ## Design Principles
 
@@ -41,3 +63,4 @@ Phase 1 only creates the contracts and stubs for this pipeline. Agent business l
 - Configuration over code: host URLs, model names, timeouts, and debug flags live in `.env`.
 - Fail-visible errors: future pipeline failures must populate state error fields rather than failing silently.
 - Privacy by architecture: user data remains local; cloud LLM APIs are not used.
+
