@@ -8,6 +8,7 @@ import logging
 from pydantic import BaseModel
 
 from factcheck.extractor.config import VALIDATION_CONFIG
+from factcheck.extractor.nodes.reasoning import ReasoningText
 from factcheck.extractor.prompts import VALIDATION_HUMAN_PROMPT, VALIDATION_SYSTEM_PROMPT
 from factcheck.extractor.schemas import ExtractorState, PotentialClaim, ValidatedClaim
 from factcheck.llm.factory import get_extractor_llm
@@ -20,6 +21,7 @@ logger = logging.getLogger(__name__)
 class ValidationOutput(BaseModel):
     """Structured output for claim validation."""
 
+    reasoning: ReasoningText
     is_complete_declarative: bool
 
 

@@ -9,6 +9,7 @@ import logging
 from pydantic import BaseModel, Field
 
 from factcheck.extractor.config import DECOMPOSITION_CONFIG
+from factcheck.extractor.nodes.reasoning import ReasoningText
 from factcheck.extractor.prompts import DECOMPOSITION_SYSTEM_PROMPT, HUMAN_PROMPT
 from factcheck.extractor.schemas import DisambiguatedContent, ExtractorState, PotentialClaim
 from factcheck.extractor.utils.text import remove_following_sentences
@@ -22,6 +23,7 @@ logger = logging.getLogger(__name__)
 class DecompositionOutput(BaseModel):
     """Structured output for the decomposition stage."""
 
+    reasoning: ReasoningText
     claims: list[str] = Field(default_factory=list)
     no_claims: bool
 

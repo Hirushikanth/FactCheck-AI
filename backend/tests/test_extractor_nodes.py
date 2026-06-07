@@ -5,7 +5,9 @@ from factcheck.extractor.nodes.disambiguation import (
     _single_disambiguation_attempt,
     _needs_contextual_disambiguation,
 )
+from factcheck.extractor.nodes.decomposition import DecompositionOutput
 from factcheck.extractor.nodes.sentence_splitter import _sentence_splitter_and_context_creator
+from factcheck.extractor.nodes.selection import SelectionOutput
 from factcheck.extractor.nodes.validation import ValidationOutput, validation_node
 from factcheck.extractor.prompts import VALIDATION_SYSTEM_PROMPT
 from factcheck.extractor.schemas import ContextualSentence, ExtractorState, PotentialClaim, SelectedContent
@@ -31,14 +33,57 @@ async def test_sentence_splitter_builds_context_windows() -> None:
 
 def test_validation_prompt_matches_structured_output_contract() -> None:
     assert "structured fields" in VALIDATION_SYSTEM_PROMPT
+    assert "reasoning" in VALIDATION_SYSTEM_PROMPT
+    assert "JSON" in VALIDATION_SYSTEM_PROMPT
     assert "is_complete_declarative" in VALIDATION_SYSTEM_PROMPT
     assert 'Print "C =' not in VALIDATION_SYSTEM_PROMPT
+
+
+def test_extractor_structured_outputs_include_reasoning_first() -> None:
+    for output_class in (ValidationOutput, SelectionOutput, DecompositionOutput):
+        properties = list(output_class.model_json_schema()["properties"])
+        assert properties[0] == "reasoning"
+
+
+def test_extractor_structured_outputs_accept_reasoning_step_lists() -> None:
+    reasoning_steps = ["1. Check the sentence.", "2. Decide the output fields."]
+    expected_reasoning = "1. Check the sentence.\n2. Decide the output fields."
+    cases = [
+        (
+            ValidationOutput,
+            {"reasoning": reasoning_steps, "is_complete_declarative": True},
+        ),
+        (
+            SelectionOutput,
+            {
+                "reasoning": reasoning_steps,
+                "processed_sentence": "Ada Lovelace wrote notes.",
+                "no_verifiable_claims": False,
+                "remains_unchanged": True,
+            },
+        ),
+        (
+            DecompositionOutput,
+            {
+                "reasoning": reasoning_steps,
+                "claims": ["Ada Lovelace wrote notes."],
+                "no_claims": False,
+            },
+        ),
+    ]
+
+    for output_class, payload in cases:
+        output = output_class.model_validate(payload)
+        assert output.reasoning == expected_reasoning
 
 
 async def test_validation_node_filters_invalid_and_duplicate_claims(monkeypatch) -> None:
     async def fake_structured_call(*, llm, output_class, messages, context_desc=""):
         claim_text = messages[-1][1]
-        return ValidationOutput(is_complete_declarative="Fragment" not in claim_text)
+        return ValidationOutput(
+            reasoning="Checked whether the claim is complete and declarative.",
+            is_complete_declarative="Fragment" not in claim_text,
+        )
 
     monkeypatch.setattr(validation, "call_llm_with_structured_output", fake_structured_call)
     monkeypatch.setattr(validation, "get_extractor_llm", lambda temperature: object())
