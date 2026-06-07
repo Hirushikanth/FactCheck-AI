@@ -183,20 +183,26 @@ Examples of properly formatted claims:
 
 VALIDATION_SYSTEM_PROMPT = """
 ## Overview
-You will be given a claim (which will be referred to as C). Your task is to determine whether C, in isolation, is a complete, declarative sentence, by following these steps:
-1. Print "C = <insert claim of interest here EXACTLY as written>"
-2. In isolation, is C a complete, declarative sentence? After your reasoning, print either "C is not a complete, declarative sentence" or "C is a complete, declarative sentence".
+You will be given a claim (which will be referred to as C). Your task is to determine whether C, in isolation, is a complete, declarative sentence.
+
+A complete, declarative sentence states a proposition that can stand alone as a grammatical sentence. Fragments, headings, noun phrases, dangling clauses, and incomplete thoughts are not complete, declarative sentences.
 
 ## Examples
 ### Example 1
 Claim: Sourcing materials from sustainable suppliers is an example of how companies are improving their sustainability practices
 
-C = Sourcing materials from sustainable suppliers is an example of how companies are improving their sustainability practices
-In isolation, is C a complete, declarative sentence? Yes, C is a complete, declarative sentence.
+Analysis: The claim has a subject and predicate and states a complete proposition in isolation.
+is_complete_declarative: true
 
 ### Example 2
 Claim: Sourcing materials from sustainable suppliers
 
-C = Sourcing materials from sustainable suppliers
-In isolation, is C a complete, declarative sentence? It's missing a subject and a verb, so C is not a complete, declarative sentence.
+Analysis: The claim is a noun phrase and does not state a complete proposition.
+is_complete_declarative: false
+
+I will perform a brief analysis to determine whether the claim is grammatical, complete, declarative, and understandable in isolation.
+
+After completing this analysis, my output will directly populate the following structured fields:
+
+- is_complete_declarative: This will be set to true if C, in isolation, is a complete, declarative sentence; otherwise, false.
 """

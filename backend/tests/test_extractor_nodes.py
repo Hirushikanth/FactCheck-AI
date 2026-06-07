@@ -7,6 +7,7 @@ from factcheck.extractor.nodes.disambiguation import (
 )
 from factcheck.extractor.nodes.sentence_splitter import _sentence_splitter_and_context_creator
 from factcheck.extractor.nodes.validation import ValidationOutput, validation_node
+from factcheck.extractor.prompts import VALIDATION_SYSTEM_PROMPT
 from factcheck.extractor.schemas import ContextualSentence, ExtractorState, PotentialClaim, SelectedContent
 
 
@@ -26,6 +27,12 @@ async def test_sentence_splitter_builds_context_windows() -> None:
     assert "Ada wrote the first algorithm." in items[1].context_for_llm
     assert "[Following Sentences:]" in items[1].context_for_llm
     assert "It was published later." in items[1].context_for_llm
+
+
+def test_validation_prompt_matches_structured_output_contract() -> None:
+    assert "structured fields" in VALIDATION_SYSTEM_PROMPT
+    assert "is_complete_declarative" in VALIDATION_SYSTEM_PROMPT
+    assert 'Print "C =' not in VALIDATION_SYSTEM_PROMPT
 
 
 async def test_validation_node_filters_invalid_and_duplicate_claims(monkeypatch) -> None:
