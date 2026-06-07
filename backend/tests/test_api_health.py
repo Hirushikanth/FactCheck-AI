@@ -10,7 +10,7 @@ def test_health_endpoint_shape() -> None:
             "ollama_reachable": True,
             "model_loaded": True,
             "ollama_base_url": "http://localhost:11434",
-            "ollama_model": "qwen2.5:3b",
+            "ollama_model": "mistral:7b",
         }
 
     original = main.build_health_payload
@@ -28,7 +28,7 @@ def test_health_endpoint_shape() -> None:
         "ollama_reachable": True,
         "model_loaded": True,
         "ollama_base_url": "http://localhost:11434",
-        "ollama_model": "qwen2.5:3b",
+        "ollama_model": "mistral:7b",
     }
 
 
@@ -38,7 +38,7 @@ def test_health_payload_reports_unreachable_ollama(monkeypatch) -> None:
             "reachable": False,
             "model_loaded": False,
             "base_url": "http://localhost:11434",
-            "model": "qwen2.5:3b",
+            "model": "mistral:7b",
         }
 
     monkeypatch.setattr(main, "check_ollama_health", fake_check_ollama_health)

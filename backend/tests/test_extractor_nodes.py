@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from factcheck.extractor.nodes import disambiguation, sentence_splitter, validation
+from factcheck.extractor.nodes import disambiguation, validation
 from factcheck.extractor.nodes.disambiguation import (
     _single_disambiguation_attempt,
     _needs_contextual_disambiguation,

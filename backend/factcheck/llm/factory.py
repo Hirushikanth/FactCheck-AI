@@ -21,3 +21,18 @@ def get_extractor_llm(
         model=resolved_settings.ollama_model,
         temperature=temperature,
     )
+
+
+def get_verifier_llm(
+    *,
+    temperature: float,
+    settings: AppSettings | None = None,
+) -> ChatOllama:
+    """Create an Ollama chat model for verifier stages."""
+
+    resolved_settings = settings or get_settings()
+    return ChatOllama(
+        base_url=_base_url(resolved_settings),
+        model=resolved_settings.ollama_model,
+        temperature=temperature,
+    )

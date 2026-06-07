@@ -14,10 +14,12 @@ from factcheck.agents.verifier import verifier_node
 from factcheck.state import FactCheckState
 
 
-VerifierRoute = Literal["verifier", "reporter"]
+VerifierRoute = Literal["verifier", "reporter", "end"]
 
 
 def _route_after_verifier(state: FactCheckState) -> VerifierRoute:
+    if state["status"] == "error" or state["error"]:
+        return "end"
     if len(state["claim_results"]) < len(state["extracted_claims"]):
         return "verifier"
     return "reporter"
@@ -39,7 +41,7 @@ def build_graph():
     graph.add_conditional_edges(
         "verifier",
         _route_after_verifier,
-        {"verifier": "verifier", "reporter": "reporter"},
+        {"verifier": "verifier", "reporter": "reporter", "end": END},
     )
     graph.add_edge("reporter", END)
     graph.add_edge("dialogue", END)
