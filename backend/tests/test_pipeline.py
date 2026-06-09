@@ -1,14 +1,27 @@
 from factcheck.graph.pipeline import build_graph
+from factcheck.extractor.schemas import ValidatedClaim
+
+
+def _validated_claim() -> ValidatedClaim:
+    return ValidatedClaim(
+        claim_text="The Earth is round.",
+        is_complete_declarative=True,
+        disambiguated_sentence="The Earth is round.",
+        original_sentence="The Earth is round.",
+        original_index=0,
+    )
 
 
 async def test_pipeline_runs_extractor_before_verifier(monkeypatch) -> None:
-    async def extractor_stub(state):
-        return {"current_agent": "extractor", "extracted_claims": ["The Earth is round."]}
+    claim = _validated_claim()
 
-    async def verifier_stub(claim: str):
-        assert claim == "The Earth is round."
+    async def extractor_stub(state):
+        return {"current_agent": "extractor", "extracted_claims": [claim]}
+
+    async def verifier_stub(verifier_claim: ValidatedClaim):
+        assert verifier_claim == claim
         return {
-            "claim": claim,
+            "claim": verifier_claim.claim_text,
             "verdict": "SUPPORTED",
             "confidence": 0.9,
             "evidence": ["Earth is round."],
@@ -41,16 +54,19 @@ async def test_pipeline_runs_extractor_before_verifier(monkeypatch) -> None:
     assert result["current_agent"] == "reporter"
     assert result["status"] == "done"
     assert result["final_report"] == "Phase 1 pipeline scaffold completed."
-    assert result["extracted_claims"] == ["The Earth is round."]
+    assert result["extracted_claims"] == [claim]
     assert len(result["claim_results"]) == 1
     assert result["claim_results"][0]["verdict"] == "SUPPORTED"
 
 
 async def test_pipeline_preserves_verifier_error_status(monkeypatch) -> None:
-    async def extractor_stub(state):
-        return {"current_agent": "extractor", "extracted_claims": ["The Earth is round."]}
+    claim = _validated_claim()
 
-    async def verifier_stub(claim: str):
+    async def extractor_stub(state):
+        return {"current_agent": "extractor", "extracted_claims": [claim]}
+
+    async def verifier_stub(verifier_claim: ValidatedClaim):
+        assert verifier_claim == claim
         raise RuntimeError("boom")
 
     import factcheck.graph.pipeline as pipeline
@@ -78,4 +94,5 @@ async def test_pipeline_preserves_verifier_error_status(monkeypatch) -> None:
     assert result["status"] == "error"
     assert result["error"] == "boom"
     assert result["final_report"] is None
+    assert result["claim_results"][0]["claim"] == "The Earth is round."
     assert result["claim_results"][0]["verdict"] == "INSUFFICIENT_EVIDENCE"

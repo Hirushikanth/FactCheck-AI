@@ -8,10 +8,12 @@ from pydantic import BaseModel, Field
 
 from factcheck.llm.factory import get_verifier_llm
 from factcheck.llm.structured import call_llm_with_structured_output
-from factcheck.verifier.config import MAX_SEARCH_QUERIES, QUERY_GEN_TEMPERATURE
+from factcheck.verifier.config import QUERY_GEN_NUM_CTX, QUERY_GEN_TEMPERATURE, QUERIES_PER_ITERATION
 from factcheck.verifier.prompts import (
-    QUERY_GENERATOR_HUMAN_PROMPT,
-    QUERY_GENERATOR_SYSTEM_PROMPT,
+    QUERY_GENERATOR_INITIAL_HUMAN_PROMPT,
+    QUERY_GENERATOR_INITIAL_SYSTEM_PROMPT,
+    QUERY_GENERATOR_ITERATIVE_HUMAN_PROMPT,
+    QUERY_GENERATOR_ITERATIVE_SYSTEM_PROMPT,
 )
 from factcheck.verifier.schemas import VerifierState
 
@@ -59,9 +61,9 @@ def _keyword_query(text: str) -> str:
     return " ".join(tokens)
 
 
-def _clean_queries(queries: list[str], claim: str) -> list[str]:
+def _clean_query(queries: list[str], claim: str, previous_queries: list[str]) -> str | None:
     cleaned: list[str] = []
-    seen: set[str] = set()
+    seen: set[str] = {query.casefold() for query in previous_queries}
     normalized_claim = " ".join(claim.strip().rstrip(".?!").split())
     for query in queries:
         normalized = " ".join(query.strip().rstrip(".?!").split())
@@ -70,48 +72,75 @@ def _clean_queries(queries: list[str], claim: str) -> list[str]:
             continue
         seen.add(key)
         cleaned.append(normalized)
-        if len(cleaned) >= MAX_SEARCH_QUERIES:
+        if len(cleaned) >= QUERIES_PER_ITERATION:
             break
 
-    if not cleaned:
-        cleaned.append(normalized_claim or claim)
-
-    if len(cleaned) == 1 and cleaned[0].casefold() == normalized_claim.casefold():
-        for expanded in (
-            _keyword_query(normalized_claim),
-            f"{normalized_claim} fact check".strip(),
-        ):
+    for expanded in (
+        _keyword_query(normalized_claim),
+        f"{normalized_claim} fact check".strip(),
+        normalized_claim or claim,
+    ):
+        if not cleaned:
             key = expanded.casefold()
             if expanded and key not in seen:
                 seen.add(key)
                 cleaned.append(expanded)
-            if len(cleaned) >= MAX_SEARCH_QUERIES:
+            if len(cleaned) >= QUERIES_PER_ITERATION:
                 break
 
-    return cleaned
+    return cleaned[0] if cleaned else None
 
 
-async def query_generator_node(state: VerifierState) -> dict[str, list[str]]:
+def _iterative_missing_aspects(state: VerifierState) -> list[str]:
+    if state.intermediate_assessment and state.intermediate_assessment.missing_aspects:
+        return state.intermediate_assessment.missing_aspects
+    return ["independent evidence that directly addresses the claim"]
+
+
+def _query_messages(state: VerifierState) -> list[tuple[str, str]]:
+    if state.iteration_count <= 0:
+        return [
+            ("system", QUERY_GENERATOR_INITIAL_SYSTEM_PROMPT),
+            (
+                "human",
+                QUERY_GENERATOR_INITIAL_HUMAN_PROMPT.format(claim=state.claim_text),
+            ),
+        ]
+
+    previous_queries = "\n".join(f"- {query}" for query in state.all_queries) or "- None"
+    missing_aspects = "\n".join(f"- {aspect}" for aspect in _iterative_missing_aspects(state))
+    return [
+        ("system", QUERY_GENERATOR_ITERATIVE_SYSTEM_PROMPT),
+        (
+            "human",
+            QUERY_GENERATOR_ITERATIVE_HUMAN_PROMPT.format(
+                claim=state.claim_text,
+                previous_queries=previous_queries,
+                missing_aspects=missing_aspects,
+            ),
+        ),
+    ]
+
+
+async def query_generator_node(state: VerifierState) -> dict[str, str | list[str] | None]:
     """Generate targeted search queries for one claim."""
 
     if state.claim_result is not None:
-        return {"search_queries": state.search_queries}
+        return {"current_query": state.current_query, "all_queries": state.all_queries}
 
-    llm = get_verifier_llm(temperature=QUERY_GEN_TEMPERATURE)
+    llm = get_verifier_llm(temperature=QUERY_GEN_TEMPERATURE, num_ctx=QUERY_GEN_NUM_CTX)
     response = await call_llm_with_structured_output(
         llm=llm,
         output_class=QueryGeneratorOutput,
-        messages=[
-            ("system", QUERY_GENERATOR_SYSTEM_PROMPT),
-            (
-                "human",
-                QUERY_GENERATOR_HUMAN_PROMPT.format(
-                    claim=state.claim,
-                    max_queries=MAX_SEARCH_QUERIES,
-                ),
-            ),
-        ],
-        context_desc=f"query generation for '{state.claim}'",
+        messages=_query_messages(state),
+        context_desc=f"query generation for '{state.claim_text}'",
     )
 
-    return {"search_queries": _clean_queries(response.queries if response else [], state.claim)}
+    query = _clean_query(response.queries if response else [], state.claim_text, state.all_queries)
+    if query is None:
+        return {"current_query": None}
+
+    return {
+        "current_query": query,
+        "all_queries": state.all_queries + [query],
+    }

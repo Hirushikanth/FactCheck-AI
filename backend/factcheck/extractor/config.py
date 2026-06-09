@@ -1,4 +1,4 @@
-"""Configuration for Claimify-style extractor nodes."""
+"""Configuration for claim extractor nodes."""
 
 from __future__ import annotations
 

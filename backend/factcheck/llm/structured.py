@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from collections.abc import Sequence
 from json import JSONDecodeError
 from typing import TypeVar
@@ -28,6 +29,11 @@ def _message_text(response: object) -> str:
 
 
 def _parse_json_object(text: str) -> dict[str, object] | None:
+    text = text.strip()
+    fence_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
+    if fence_match:
+        text = fence_match.group(1)
+
     try:
         parsed = json.loads(text)
     except JSONDecodeError:

@@ -1,4 +1,4 @@
-"""Internal data models for the Claimify-style extractor."""
+"""Internal data models for the claim extractor."""
 
 from __future__ import annotations
 

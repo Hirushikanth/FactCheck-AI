@@ -2,12 +2,24 @@
 
 from __future__ import annotations
 
-import asyncio
 from urllib.parse import urlsplit, urlunsplit
 
 from factcheck.search import SearchHit, search_with_fallback
-from factcheck.state import ClaimResult
-from factcheck.verifier.schemas import VerifierState
+from factcheck.verifier.config import MAX_SNIPPET_WORDS, RANKER_HEURISTIC_TOP_N
+from factcheck.verifier.schemas import EvidenceItem, VerifierState
+from factcheck.verifier.utils import (
+    estimate_tokens,
+    heuristic_prefilter_hits,
+    truncate_snippet,
+)
+
+
+def _truncate_snippet(text: str, max_words: int = MAX_SNIPPET_WORDS) -> str:
+    return truncate_snippet(text, max_words=max_words)
+
+
+def _estimate_tokens(text: str) -> int:
+    return estimate_tokens(text)
 
 
 def _normalized_url(url: str) -> str:
@@ -17,53 +29,55 @@ def _normalized_url(url: str) -> str:
     return urlunsplit((parts.scheme.lower(), netloc, path, "", ""))
 
 
-def _insufficient_result(state: VerifierState, reasoning: str) -> ClaimResult:
-    return {
-        "claim": state.claim,
-        "verdict": "INSUFFICIENT_EVIDENCE",
-        "confidence": 0.0,
-        "evidence": [],
-        "sources": [],
-        "reasoning": reasoning,
-        "search_queries": state.search_queries,
-    }
-
-
 async def retriever_node(
     state: VerifierState,
-) -> dict[str, list[SearchHit] | ClaimResult]:
-    """Retrieve and deduplicate search hits for generated queries."""
+) -> dict[str, list[EvidenceItem] | int]:
+    """Retrieve and deduplicate search hits for the current query."""
 
     if state.claim_result is not None:
-        return {"claim_result": state.claim_result}
+        return {"evidence": []}
 
-    if not state.search_queries:
-        return {
-            "raw_hits": [],
-            "claim_result": _insufficient_result(state, "No search queries were generated."),
-        }
+    if not state.current_query or state.estimated_evidence_tokens >= state.max_evidence_tokens:
+        return {"evidence": [], "estimated_evidence_tokens": state.estimated_evidence_tokens}
 
-    search_results = await asyncio.gather(
-        *(search_with_fallback(query) for query in state.search_queries)
-    )
+    hits, _provider_name = await search_with_fallback(state.current_query)
 
+    existing_urls = {_normalized_url(item.url) for item in state.evidence}
     deduped_hits: list[SearchHit] = []
-    seen_urls: set[str] = set()
-    for hits, _provider_name in search_results:
-        for hit in hits:
-            normalized = _normalized_url(hit.url)
-            if not normalized or normalized in seen_urls:
-                continue
-            seen_urls.add(normalized)
-            deduped_hits.append(hit)
+    seen_urls = set(existing_urls)
+    for hit in hits:
+        normalized = _normalized_url(hit.url)
+        if not normalized or normalized in seen_urls:
+            continue
+        seen_urls.add(normalized)
+        deduped_hits.append(hit)
 
     if not deduped_hits:
-        return {
-            "raw_hits": [],
-            "claim_result": _insufficient_result(
-                state,
-                "Search returned no evidence for this claim.",
-            ),
-        }
+        return {"evidence": [], "estimated_evidence_tokens": state.estimated_evidence_tokens}
 
-    return {"raw_hits": deduped_hits}
+    new_evidence: list[EvidenceItem] = []
+    new_tokens = 0
+    for hit, score in heuristic_prefilter_hits(
+        state.claim_text,
+        deduped_hits,
+        top_n=RANKER_HEURISTIC_TOP_N,
+    ):
+        snippet = _truncate_snippet(hit.snippet)
+        token_count = _estimate_tokens(snippet)
+        if state.estimated_evidence_tokens + new_tokens + token_count > state.max_evidence_tokens:
+            break
+
+        new_tokens += token_count
+        new_evidence.append(
+            EvidenceItem(
+                url=hit.url,
+                title=hit.title,
+                snippet=snippet,
+                relevance_score=score,
+            )
+        )
+
+    return {
+        "evidence": new_evidence,
+        "estimated_evidence_tokens": state.estimated_evidence_tokens + new_tokens,
+    }

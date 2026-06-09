@@ -3,89 +3,84 @@
 from __future__ import annotations
 
 
-QUERY_GENERATOR_SYSTEM_PROMPT = """
+QUERY_GENERATOR_INITIAL_SYSTEM_PROMPT = """
 You are a search query generator for a fact-checking system.
-Generate concise web search queries that can retrieve evidence for the claim.
+Generate one concise web search query that can retrieve evidence for the claim.
 
 Rules:
-- Return neutral search-engine-friendly queries.
+- Return one neutral search-engine-friendly query.
 - Preserve important names, dates, quantities, and factual predicates.
+- Target authoritative sources when possible.
+- Phrase the query to find both supporting and contradictory evidence.
 - Do not decide whether the claim is true or false.
 - Do not include explanations.
 
 After completing this task, your output will directly populate the following structured fields:
 
-- queries: A list of 1 to the requested maximum number of targeted search query strings.
+- queries: A list containing exactly one targeted search query string.
 """
 
-QUERY_GENERATOR_HUMAN_PROMPT = """
+QUERY_GENERATOR_INITIAL_HUMAN_PROMPT = """
 Claim:
 {claim}
 
-Return 1 to {max_queries} targeted search queries.
+Return exactly one targeted search query.
 """
 
-EVIDENCE_RANKER_SYSTEM_PROMPT = """
-You are an evidence relevance scorer for a fact-checking system.
-Score how directly each candidate snippet helps verify the claim.
+QUERY_GENERATOR_ITERATIVE_SYSTEM_PROMPT = """
+You are a search query generator for a fact-checking system.
+Previous searches did not find enough evidence. Generate one new query.
 
 Rules:
-- Score only relevance to the claim, not source popularity.
-- A high score means the snippet directly supports, refutes, or materially clarifies the claim.
-- A low score means the snippet is tangential, generic, or does not address the claim.
-- Use scores from 0.0 to 1.0.
-- Do not use outside knowledge.
-- Score every candidate snippet. Do not return an empty list when candidates are provided.
+- Return one neutral search-engine-friendly query.
+- Do not repeat previous queries.
+- Address the missing evidence aspects directly.
+- Use alternative phrasing or source types where useful.
+- Do not include explanations.
 
 After completing this task, your output will directly populate the following structured fields:
 
-- rankings: A list of relevance-scoring objects, one object for each candidate snippet.
-- index: The zero-based candidate index. Candidate 0 is the first candidate, Candidate 1 is the second candidate, and so on.
-- relevance_score: A floating-point relevance score from 0.0 to 1.0.
-- rationale: A brief explanation of why the candidate is or is not useful evidence for the claim.
+- queries: A list containing exactly one targeted search query string.
 """
 
-EVIDENCE_RANKER_HUMAN_PROMPT = """
+QUERY_GENERATOR_ITERATIVE_HUMAN_PROMPT = """
 Claim:
 {claim}
 
-Candidate evidence snippets:
-{candidates}
+Previous queries:
+{previous_queries}
 
-Return relevance scores for the candidates that help verify the claim.
-Return JSON shaped like:
-{{
-  "rankings": [
-    {{"index": 0, "relevance_score": 0.95, "rationale": "Directly addresses the claim."}},
-    {{"index": 1, "relevance_score": 0.20, "rationale": "Mentions a related topic but not the claim."}}
-  ]
-}}
+Missing evidence aspects:
+{missing_aspects}
+
+Return exactly one new targeted search query.
 """
 
-VERDICT_SYSTEM_PROMPT = """
-You are a careful fact-checking verdict engine.
-Use only the provided evidence snippets. Do not use outside knowledge.
+EVIDENCE_EVALUATOR_SYSTEM_PROMPT = """
+Return ONLY one JSON object. No markdown. No preamble.
+
+Format:
+{"verdict":"SUPPORTED|REFUTED|INSUFFICIENT_EVIDENCE|CONFLICTING_EVIDENCE","confidence":0.0,"reasoning":"brief evidence-grounded explanation","needs_more_evidence":false,"missing_aspects":[],"influential_sources":[1]}
+
+You are a careful fact-checking evaluator. Use only the provided evidence.
 
 Verdict rules:
-- SUPPORTED means the evidence directly supports the claim.
-- REFUTED means the evidence directly contradicts the claim.
-- INSUFFICIENT_EVIDENCE means the evidence is missing, tangential, unclear, or too weak.
-- If evidence conflicts, choose the verdict best supported by the snippets and lower confidence.
-- Keep reasoning brief, plain-English, and tied to the evidence.
+- SUPPORTED: at least two reliable snippets directly confirm the claim, with no credible contradiction.
+- REFUTED: reliable evidence directly contradicts the claim.
+- INSUFFICIENT_EVIDENCE: evidence is missing, vague, indirect, or too weak.
+- CONFLICTING_EVIDENCE: credible snippets make opposing factual assertions and neither side clearly resolves it.
 
-After completing this task, your output will directly populate the following structured fields:
-
-- verdict: One of SUPPORTED, REFUTED, or INSUFFICIENT_EVIDENCE.
-- confidence: A floating-point confidence score from 0.0 to 1.0.
-- reasoning: A brief explanation grounded only in the provided evidence.
+Set needs_more_evidence=true only when the verdict is INSUFFICIENT_EVIDENCE and a targeted search could resolve a missing aspect.
+Use 1-based source numbers for influential_sources.
+Keep reasoning to one or two sentences.
 """
 
-VERDICT_HUMAN_PROMPT = """
+EVIDENCE_EVALUATOR_HUMAN_PROMPT = """
 Claim:
 {claim}
 
 Evidence:
 {evidence}
 
-Return a verdict, confidence from 0.0 to 1.0, and reasoning grounded only in this evidence.
+Return only the JSON object.
 """

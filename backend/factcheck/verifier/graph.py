@@ -4,26 +4,53 @@ from __future__ import annotations
 
 from langgraph.graph import END, START, StateGraph
 
-from factcheck.verifier.nodes.evidence_ranker import evidence_ranker_node
+from factcheck.verifier.nodes.evidence_evaluator import evidence_evaluator_node
 from factcheck.verifier.nodes.query_generator import query_generator_node
 from factcheck.verifier.nodes.retriever import retriever_node
-from factcheck.verifier.nodes.verdict_engine import verdict_engine_node
 from factcheck.verifier.schemas import VerifierState
 
 
+def route_after_query(state: VerifierState) -> str:
+    """Route to retrieval only when query generation produced a query."""
+
+    return "retriever" if state.current_query else END
+
+
+def route_after_evaluate(state: VerifierState) -> str:
+    """Loop for more evidence until a final claim result exists or the cap is reached."""
+
+    if state.claim_result is not None:
+        return END
+
+    if (
+        state.intermediate_assessment is not None
+        and state.intermediate_assessment.needs_more_evidence
+        and state.iteration_count < state.max_iterations
+    ):
+        return "query_generator"
+
+    return END
+
+
 def build_verifier_graph():
-    """Build the sequential verifier subgraph."""
+    """Build the iterative verifier subgraph."""
 
     graph = StateGraph(VerifierState)
     graph.add_node("query_generator", query_generator_node)
     graph.add_node("retriever", retriever_node)
-    graph.add_node("evidence_ranker", evidence_ranker_node)
-    graph.add_node("verdict_engine", verdict_engine_node)
+    graph.add_node("evidence_evaluator", evidence_evaluator_node)
 
     graph.add_edge(START, "query_generator")
-    graph.add_edge("query_generator", "retriever")
-    graph.add_edge("retriever", "evidence_ranker")
-    graph.add_edge("evidence_ranker", "verdict_engine")
-    graph.add_edge("verdict_engine", END)
+    graph.add_conditional_edges(
+        "query_generator",
+        route_after_query,
+        {"retriever": "retriever", END: END},
+    )
+    graph.add_edge("retriever", "evidence_evaluator")
+    graph.add_conditional_edges(
+        "evidence_evaluator",
+        route_after_evaluate,
+        {"query_generator": "query_generator", END: END},
+    )
 
     return graph.compile()

@@ -1,4 +1,4 @@
-"""LangGraph wrapper for the Claimify-style extractor pipeline."""
+"""LangGraph wrapper for the claim extractor pipeline."""
 
 from __future__ import annotations
 

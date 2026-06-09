@@ -2,8 +2,13 @@
 
 from __future__ import annotations
 
+from factcheck.extractor.schemas import ValidatedClaim
 from factcheck.state import ClaimResult, FactCheckState
 from factcheck.verifier import run_verifier
+
+
+def _claim_text(claim: ValidatedClaim | str) -> str:
+    return claim.claim_text if isinstance(claim, ValidatedClaim) else claim
 
 
 async def verifier_node(
@@ -21,7 +26,7 @@ async def verifier_node(
         result = await run_verifier(claim)
     except Exception as exc:
         result: ClaimResult = {
-            "claim": claim,
+            "claim": _claim_text(claim),
             "verdict": "INSUFFICIENT_EVIDENCE",
             "confidence": 0.0,
             "evidence": [],

@@ -1,4 +1,4 @@
-"""Prompts adapted from ClaimeAI's Claimify-style extractor pipeline."""
+"""Prompts for the claim extraction pipeline."""
 
 from __future__ import annotations
 

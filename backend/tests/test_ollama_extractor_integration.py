@@ -17,4 +17,4 @@ async def test_ollama_extractor_returns_claims_for_simple_text() -> None:
     )
 
     assert claims
-    assert all(claim.strip() for claim in claims)
+    assert all(claim.claim_text.strip() for claim in claims)
