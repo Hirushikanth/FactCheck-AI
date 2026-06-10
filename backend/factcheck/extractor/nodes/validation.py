@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from factcheck.extractor.config import VALIDATION_CONFIG
 from factcheck.extractor.prompts import VALIDATION_HUMAN_PROMPT, VALIDATION_SYSTEM_PROMPT
@@ -20,7 +20,9 @@ logger = logging.getLogger(__name__)
 class ValidationOutput(BaseModel):
     """Structured output for claim validation."""
 
-    is_complete_declarative: bool
+    is_complete_declarative: bool = Field(
+        description="True if the claim is a complete, declarative sentence in isolation."
+    )
 
 
 async def _validate_claim(potential_claim: PotentialClaim) -> ValidatedClaim:
