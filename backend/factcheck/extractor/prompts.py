@@ -55,18 +55,14 @@ Here are some examples of sentences that likely contain a specific and verifiabl
 - The power of branding is highlighted in discussions featuring John Smith and Jane Doe -> remains unchanged
 - Therefore, leveraging industry events, as demonstrated by Jane's experience at the Tech Networking Club, can provide visibility and traction for new ventures -> "Jane had an experience at the Tech Networking Club, and her experience involved leveraging an industry event to provide visibility and traction for a new venture"
 
-I will now provide step-by-step reasoning to determine if the given sentence contains at least one specific and verifiable proposition:
+Return a single JSON object with these structured fields, in this order:
 
-1. First, I will reflect on the criteria for a specific and verifiable proposition.
-2. I will objectively describe the excerpt, the sentence, and its surrounding sentences.
-3. I will consider all possible perspectives on whether the sentence explicitly or implicitly contains a specific and verifiable proposition, or if it just contains an introduction for the following sentence(s), a conclusion for the preceding sentence(s), broad or generic statements, opinions, interpretations, speculations, statements about a lack of information, etc.
-4. If it contains a specific and verifiable proposition, I will reflect on whether any changes are needed to ensure that the entire sentence only contains verifiable information.
+1. reasoning: A single string containing your step-by-step analysis; do not use an array or list for this field. First, reflect on the criteria for a specific and verifiable proposition. Next, objectively describe the excerpt, the sentence, and its surrounding sentences. Then consider whether the sentence explicitly or implicitly contains a specific and verifiable proposition, or if it is only an introduction, conclusion, broad or generic statement, opinion, interpretation, speculation, statement about a lack of information, etc. If it contains a specific and verifiable proposition, explain whether changes are needed to ensure the entire sentence only contains verifiable information.
+2. processed_sentence: The complete sentence containing only verifiable information. If the original sentence already contains only verifiable information, this will be the original sentence. If the sentence contains no verifiable claims, this field will be null.
+3. no_verifiable_claims: This will be set to true if the sentence does not contain any specific and verifiable propositions; otherwise, false.
+4. remains_unchanged: This will be set to true if the original sentence already contains only verifiable information and requires no modifications; otherwise, false.
 
-After completing this analysis, my output will directly populate the following structured fields:
-
-- processed_sentence: The complete sentence containing only verifiable information. If the original sentence already contains only verifiable information, this will be the original sentence. If the sentence contains no verifiable claims, this field will be null.
-- no_verifiable_claims: This will be set to true if the sentence does not contain any specific and verifiable propositions; otherwise, false.
-- remains_unchanged: This will be set to true if the original sentence already contains only verifiable information and requires no modifications; otherwise, false.
+Do not include markdown, code fences, or any text outside the JSON object.
 """
 
 DISAMBIGUATION_SYSTEM_PROMPT = """
@@ -158,20 +154,21 @@ Here are some correct examples that you must pay attention to:
     - MaxClarifiedSentence = John Smith stresses AI's importance in improving patient outcomes, and some experts excluding John Smith highlight AI's risks in healthcare, and privacy and data security are examples of AI's risks in healthcare that they highlight.
     - Specific, Verifiable, and Decontextualized Propositions: ["John Smith stresses AI's importance in improving patient outcomes", "Some experts excluding John Smith highlight AI's risks in healthcare", "Some experts excluding John Smith highlight privacy as a risk of AI in healthcare", "Some experts excluding John Smith highlight data security as a risk of AI in healthcare"]
 
-I will systematically analyze the sentence to extract all specific, verifiable, and properly decontextualized claims:
+Analyze the sentence step by step inside the reasoning field:
 
-1. First, I will clarify any referential terms in the sentence to ensure their meaning is clear.
-2. I will then create a comprehensively clarified version of the sentence that explicitly states all the discrete units of information.
-3. I will identify the range of possible propositions that could be extracted.
-4. Next, I will generate a list of specific, verifiable, and fully decontextualized propositions from the sentence.
-5. Finally, I will ensure that each proposition is independently understandable by adding essential clarifications and context in square brackets where needed.
+1. First, clarify any referential terms in the sentence to ensure their meaning is clear.
+2. Then create a comprehensively clarified version of the sentence that explicitly states all the discrete units of information.
+3. Identify the range of possible propositions that could be extracted.
+4. Generate a list of specific, verifiable, and fully decontextualized propositions from the sentence.
+5. Ensure that each proposition is independently understandable by adding essential clarifications and context in square brackets where needed.
 
 IMPORTANT: Each claim must be fully self-contained as a complete sentence with all necessary context included. When information is implied by the context but not explicitly stated in the sentence, I will add this information in square brackets [...].
 
-After completing this analysis, my output will directly populate the following structured fields:
+Return a single JSON object with these structured fields, in this order:
 
-- claims: A list of specific, verifiable, and fully decontextualized propositions with essential context in square brackets
-- no_claims: This will be set to true if the sentence does not contain any verifiable propositions; otherwise, false
+1. reasoning: A single string containing your step-by-step analysis from the process above; write this field first and do not use an array or list.
+2. claims: A list of specific, verifiable, and fully decontextualized propositions with essential context in square brackets.
+3. no_claims: This will be set to true if the sentence does not contain any verifiable propositions; otherwise, false.
 
 The claims in my output will follow this format: "Specific proposition with [essential context or clarifications in brackets]"
 
@@ -179,24 +176,39 @@ Examples of properly formatted claims:
 - "The [Boston] local council expects its law [banning plastic bags] to pass in January 2025"
 - "Other agencies [besides the Department of Education and the Department of Defense] increased their deficit [relative to 2023]"
 - "The CGP [Committee for Global Peace] has called for the termination of hostilities [in the context of a discussion on the Middle East]"
+
+Do not include markdown, code fences, or any text outside the JSON object.
 """
 
 VALIDATION_SYSTEM_PROMPT = """
 ## Overview
-You will be given a claim (which will be referred to as C). Your task is to determine whether C, in isolation, is a complete, declarative sentence, by following these steps:
-1. Print "C = <insert claim of interest here EXACTLY as written>"
-2. In isolation, is C a complete, declarative sentence? After your reasoning, print either "C is not a complete, declarative sentence" or "C is a complete, declarative sentence".
+You will be given a claim (which will be referred to as C). Your task is to determine whether C, in isolation, is a complete, declarative sentence.
+
+A complete, declarative sentence states a proposition that can stand alone as a grammatical sentence. Fragments, headings, noun phrases, dangling clauses, and incomplete thoughts are not complete, declarative sentences.
 
 ## Examples
 ### Example 1
 Claim: Sourcing materials from sustainable suppliers is an example of how companies are improving their sustainability practices
 
-C = Sourcing materials from sustainable suppliers is an example of how companies are improving their sustainability practices
-In isolation, is C a complete, declarative sentence? Yes, C is a complete, declarative sentence.
+Correct JSON output:
+{
+  "reasoning": "The claim has a subject and predicate and states a complete proposition in isolation.",
+  "is_complete_declarative": true
+}
 
 ### Example 2
 Claim: Sourcing materials from sustainable suppliers
 
-C = Sourcing materials from sustainable suppliers
-In isolation, is C a complete, declarative sentence? It's missing a subject and a verb, so C is not a complete, declarative sentence.
+Correct JSON output:
+{
+  "reasoning": "The claim is a noun phrase and does not state a complete proposition.",
+  "is_complete_declarative": false
+}
+
+Return a single JSON object with these structured fields, in this order:
+
+1. reasoning: A single string containing your brief step-by-step analysis of whether C is grammatical, complete, declarative, and understandable in isolation; write this field first and do not use an array or list.
+2. is_complete_declarative: This will be set to true if C, in isolation, is a complete, declarative sentence; otherwise, false.
+
+Do not include markdown, code fences, or any text outside the JSON object.
 """

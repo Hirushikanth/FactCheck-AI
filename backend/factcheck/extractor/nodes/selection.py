@@ -7,6 +7,7 @@ import logging
 from pydantic import BaseModel, Field
 
 from factcheck.extractor.config import SELECTION_CONFIG
+from factcheck.extractor.nodes.reasoning import ReasoningText
 from factcheck.extractor.prompts import HUMAN_PROMPT, SELECTION_SYSTEM_PROMPT
 from factcheck.extractor.schemas import ContextualSentence, ExtractorState, SelectedContent
 from factcheck.extractor.utils.voting import process_with_voting
@@ -20,6 +21,7 @@ logger = logging.getLogger(__name__)
 class SelectionOutput(BaseModel):
     """Structured output for the selection stage."""
 
+    reasoning: ReasoningText
     processed_sentence: str | None = Field(default=None)
     no_verifiable_claims: bool
     remains_unchanged: bool
