@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Literal, TypedDict
+from typing import Annotated, Literal, NotRequired, TypedDict
 
 from langchain_core.messages import BaseMessage
 from langgraph.graph.message import add_messages
@@ -24,6 +24,8 @@ class ClaimResult(TypedDict):
     sources: list[str]
     reasoning: str
     search_queries: list[str]
+    source_sentence: NotRequired[str | None]
+    fidelity_status: NotRequired[str | None]
 
 
 class FactCheckState(TypedDict):

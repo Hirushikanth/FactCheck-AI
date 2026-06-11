@@ -12,6 +12,7 @@ from factcheck.verifier.utils import (
     heuristic_prefilter_hits,
     truncate_snippet,
 )
+from factcheck.verifier.utils.framing import extract_evaluation_frame
 
 
 def _truncate_snippet(text: str, max_words: int = MAX_SNIPPET_WORDS) -> str:
@@ -61,6 +62,7 @@ async def retriever_node(
         state.claim_text,
         deduped_hits,
         top_n=RANKER_HEURISTIC_TOP_N,
+        evaluation_frame=extract_evaluation_frame(state.claim_text),
     ):
         snippet = _truncate_snippet(hit.snippet)
         token_count = _estimate_tokens(snippet)

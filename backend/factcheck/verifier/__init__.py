@@ -15,7 +15,9 @@ async def run_verifier(claim: ValidatedClaim | str) -> ClaimResult:
         state = VerifierState(
             claim_text=claim.claim_text,
             source_sentence=claim.original_sentence,
+            disambiguated_sentence=claim.disambiguated_sentence,
             original_index=claim.original_index,
+            fidelity_status=claim.fidelity_status,
         )
         claim_text = claim.claim_text
     else:

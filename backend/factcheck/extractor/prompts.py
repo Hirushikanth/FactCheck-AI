@@ -26,6 +26,10 @@ Note the following rules:
 - It does NOT matter whether the proposition is true or false.
 - It does NOT matter whether the proposition contains ambiguous terms, e.g., a pronoun without a clear antecedent. Assume that the fact-checker has the necessary information to resolve all ambiguities.
 - You will NOT consider whether a sentence contains a citation when determining if it has a specific and verifiable proposition.
+- Fidelity rule: extract what the sentence asserts, not what is true. Do not correct false claims, substitute more accurate entities, or change factual predicates based on your own knowledge.
+- If the original sentence is already a specific verifiable assertion, keep its entities, dates, quantities, negation, modality, and factual predicate unchanged even when the assertion is obviously false or dangerous.
+- "The pyramids were built by aliens" must remain "The pyramids were built by aliens"; do not rewrite it to say humans, Egyptians, or ancient Egyptians built the pyramids.
+- "Drinking bleach cures COVID-19" must remain "Drinking bleach cures COVID-19"; do not rewrite it to say bleach is harmful or vaccines prevent COVID-19.
 
 You must consider the preceding and following sentences when determining if the sentence has a specific and verifiable proposition. For example:
 - if preceding sentence = "Jane Doe introduces the concept of regenerative technology" and sentence = "It means using technology to restore ecosystems" then sentence contains a specific and verifiable proposition.
@@ -83,6 +87,9 @@ Note the following rules:
 - If a name is only partially given in the sentence, but the full name is provided in the context, the DecontextualizedSentence must always use the full name. The same rule applies to definitions for acronyms and abbreviations. However, the lack of a full name or a definition for an acronym/abbreviation in the context does NOT count as linguistic ambiguity; in this case, you will just leave the name, acronym, or abbreviation as is.
 - Do NOT include any citations in the DecontextualizedSentence.
 - Do NOT use any external knowledge beyond what is stated in the context and sentence.
+- Fidelity rule: decontextualize only by resolving references, acronyms, incomplete names, or linguistic ambiguity from the provided context. Do not correct factual errors, replace entities, or change predicates because you know the sentence is false.
+- "The pyramids were built by aliens" must remain "The pyramids were built by aliens"; do not rewrite it to say humans, Egyptians, or ancient Egyptians built the pyramids.
+- "Drinking bleach cures COVID-19" must remain "Drinking bleach cures COVID-19"; do not rewrite it to say bleach is harmful or vaccines prevent COVID-19.
 
 Here are some correct examples that you should pay attention to:
 1. Context = "John Smith was an early employee who transitioned to management in 2010", Sentence = "At the time, he led the company's operations and finance teams."
@@ -143,6 +150,13 @@ Note the following rules:
 - If the context contains "[...]", we cannot see all preceding statements, so we do NOT know for sure whether the sentence is directly related to specific information we can't see. Therefore, you should focus on extracting claims that are self-contained based on the available context.
 - Do NOT include any citations in the propositions.
 - Do NOT use any external knowledge beyond what is stated in the context and sentence.
+- Fidelity rule: extract what the sentence asserts, not what is true. Do not correct false claims, substitute more accurate entities, or change factual predicates based on your own knowledge.
+- A proposition may be false, dangerous, or implausible and still must be extracted faithfully.
+- Every claim's core entities and predicates must come from the sentence or from essential context in the excerpt. If you add context from the excerpt, put it in square brackets. Do not add world knowledge.
+- "The pyramids were built by aliens" must produce only ["The pyramids were built by aliens"]. Do not produce claims saying humans, Egyptians, or ancient Egyptians built the pyramids.
+- "Drinking bleach cures COVID-19" must produce only ["Drinking bleach cures COVID-19"]. Do not produce claims saying bleach is harmful or vaccines prevent COVID-19.
+- When a sentence contains contrastive compounds joined by "but", "while", "whereas", or "however", extract each conjunct as a separate claim. Do not drop the positive conjunct just because another conjunct is negated.
+- When sentence-level framing applies to the whole sentence (e.g., "according to botanical definitions", "under the legal definition of X"), copy that framing into square brackets on every extracted claim.
 
 Here are some correct examples that you must pay attention to:
 1. Context = "John Smith was an early employee who transitioned to management in 2010", Sentence = "At the time, John Smith, led the company's operations and finance teams"
@@ -163,6 +177,9 @@ Here are some correct examples that you must pay attention to:
 6. Context = "[...]However, there is a divergence in how to weigh short-term benefits against long-term risks.", Sentence = "These differences are illustrated by the discussion on healthcare: John Smith stresses AI's importance in improving patient outcomes, while others highlight its risks, such as privacy and data security"
     - MaxClarifiedSentence = John Smith stresses AI's importance in improving patient outcomes, and some experts excluding John Smith highlight AI's risks in healthcare, and privacy and data security are examples of AI's risks in healthcare that they highlight.
     - Specific, Verifiable, and Decontextualized Propositions: ["John Smith stresses AI's importance in improving patient outcomes", "Some experts excluding John Smith highlight AI's risks in healthcare", "Some experts excluding John Smith highlight privacy as a risk of AI in healthcare", "Some experts excluding John Smith highlight data security as a risk of AI in healthcare"]
+7. Context = "None", Sentence = "Bananas are berries, but strawberries are not, according to the botanical definitions of fruits."
+    - MaxClarifiedSentence = Bananas are berries according to botanical definitions of fruits, and strawberries are not berries according to botanical definitions of fruits.
+    - Specific, Verifiable, and Decontextualized Propositions: ["Bananas are berries [according to botanical definitions of fruits]", "Strawberries are not berries [according to botanical definitions of fruits]"]
 
 Put the step-by-step analysis inside the reasoning field. Do not write any analysis outside the JSON object. The reasoning should cover:
 1. Referential terms in the sentence and how their meanings are clarified.
@@ -185,6 +202,35 @@ Examples of properly formatted claims:
 - "The [Boston] local council expects its law [banning plastic bags] to pass in January 2025"
 - "Other agencies [besides the Department of Education and the Department of Defense] increased their deficit [relative to 2023]"
 - "The CGP [Committee for Global Peace] has called for the termination of hostilities [in the context of a discussion on the Middle East]"
+"""
+
+FIDELITY_SYSTEM_PROMPT = """
+Return ONLY one JSON object. No markdown. No preamble.
+
+You are a fidelity auditor for a fact-checking extractor. Your task is to decide whether an extracted claim faithfully represents what the source sentence asserts.
+
+Rules:
+- Judge fidelity to the assertion, not truth in the real world.
+- Do not correct false claims. A claim can be false, dangerous, or implausible and still be faithful if it preserves the source assertion.
+- The extracted claim must not introduce a new core entity, date, quantity, negation, modality, or factual predicate unless that addition is explicitly present in the source sentence or necessary context.
+- "The pyramids were built by aliens" is faithful to "The pyramids were built by aliens"; "The pyramids were built by humans" is not faithful.
+- "Drinking bleach cures COVID-19" is faithful to "Drinking bleach cures COVID-19"; "Drinking bleach is harmful" is not faithful.
+
+Populate the following structured fields:
+
+- reasoning: A concise explanation of whether the extracted claim preserves the source assertion.
+- faithful: true if the extracted claim faithfully represents the source assertion without truth correction; otherwise false.
+"""
+
+FIDELITY_HUMAN_PROMPT = """
+Source sentence:
+{source_sentence}
+
+Original sentence/context:
+{original_sentence}
+
+Extracted claim:
+{claim}
 """
 
 VALIDATION_SYSTEM_PROMPT = """

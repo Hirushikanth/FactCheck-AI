@@ -98,12 +98,16 @@ def _iterative_missing_aspects(state: VerifierState) -> list[str]:
 
 
 def _query_messages(state: VerifierState) -> list[tuple[str, str]]:
+    source_sentence = state.source_sentence or state.claim_text
     if state.iteration_count <= 0:
         return [
             ("system", QUERY_GENERATOR_INITIAL_SYSTEM_PROMPT),
             (
                 "human",
-                QUERY_GENERATOR_INITIAL_HUMAN_PROMPT.format(claim=state.claim_text),
+                QUERY_GENERATOR_INITIAL_HUMAN_PROMPT.format(
+                    source_sentence=source_sentence,
+                    claim=state.claim_text,
+                ),
             ),
         ]
 
@@ -114,6 +118,7 @@ def _query_messages(state: VerifierState) -> list[tuple[str, str]]:
         (
             "human",
             QUERY_GENERATOR_ITERATIVE_HUMAN_PROMPT.format(
+                source_sentence=source_sentence,
                 claim=state.claim_text,
                 previous_queries=previous_queries,
                 missing_aspects=missing_aspects,

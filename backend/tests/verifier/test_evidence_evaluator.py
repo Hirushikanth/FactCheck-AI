@@ -1,8 +1,97 @@
 from __future__ import annotations
 
+from factcheck.verifier import prompts as verifier_prompts
 from factcheck.verifier.nodes import evidence_evaluator
-from factcheck.verifier.nodes.evidence_evaluator import EvaluationOutput, evidence_evaluator_node
+from factcheck.verifier.nodes.evidence_evaluator import (
+    EvaluationOutput,
+    _evaluation_messages,
+    evidence_evaluator_node,
+)
+from factcheck.verifier.nodes.query_generator import _query_messages
 from factcheck.verifier.schemas import EvidenceItem, VerifierState
+
+
+_BERRIES_SOURCE = (
+    "Bananas are berries, but strawberries are not, "
+    "according to the botanical definitions of fruits."
+)
+_BERRIES_CLAIM = (
+    "Strawberries are not berries [according to botanical definitions of fruits]"
+)
+
+
+def test_verifier_prompts_require_definitional_framing() -> None:
+    assert "botanical" in verifier_prompts.QUERY_GENERATOR_INITIAL_SYSTEM_PROMPT.casefold()
+    assert "colloquial" in verifier_prompts.EVIDENCE_EVALUATOR_SYSTEM_PROMPT.casefold()
+    assert "CONFLICTING_EVIDENCE" in verifier_prompts.EVIDENCE_EVALUATOR_SYSTEM_PROMPT
+    assert "aggregate fruits" in verifier_prompts.EVIDENCE_EVALUATOR_SYSTEM_PROMPT.casefold()
+
+
+def test_verifier_evaluator_prompt_includes_botanical_source_framing() -> None:
+    state = VerifierState(
+        claim_text=_BERRIES_CLAIM,
+        source_sentence=_BERRIES_SOURCE,
+        evidence=[
+            EvidenceItem(
+                url="https://example.com/berries",
+                title="Berries",
+                snippet="Strawberries are commonly called berries in everyday language.",
+            )
+        ],
+    )
+
+    human_prompt = _evaluation_messages(state)[-1][1]
+
+    assert human_prompt.startswith("Evaluation frame:\n")
+    assert "botanical definitions of fruits" in human_prompt
+    assert _BERRIES_CLAIM in human_prompt
+
+
+def test_verifier_query_prompt_includes_botanical_source_framing() -> None:
+    state = VerifierState(
+        claim_text=_BERRIES_CLAIM,
+        source_sentence=_BERRIES_SOURCE,
+    )
+
+    human_prompt = _query_messages(state)[-1][1]
+
+    assert "botanical definitions of fruits" in human_prompt
+    assert _BERRIES_CLAIM in human_prompt
+
+
+async def test_evidence_evaluator_guardrail_downgrades_colloquial_refuted(monkeypatch) -> None:
+    async def fake_structured_call(*, llm, output_class, messages, context_desc=""):
+        return EvaluationOutput(
+            verdict="REFUTED",
+            confidence=1.0,
+            reasoning="Popular sources say strawberries are berries.",
+            needs_more_evidence=False,
+            missing_aspects=[],
+            influential_sources=[1],
+        )
+
+    monkeypatch.setattr(evidence_evaluator, "get_verifier_llm", lambda **kwargs: object())
+    monkeypatch.setattr(evidence_evaluator, "call_llm_with_structured_output", fake_structured_call)
+
+    evidence = [
+        EvidenceItem(
+            url="https://example.com/popular",
+            snippet="Strawberries are commonly called berries in everyday language.",
+        )
+    ]
+
+    result = await evidence_evaluator_node(
+        VerifierState(
+            claim_text=_BERRIES_CLAIM,
+            source_sentence=_BERRIES_SOURCE,
+            all_queries=["strawberries botanical berries"],
+            evidence=evidence,
+        )
+    )
+
+    assert result["claim_result"]["verdict"] == "CONFLICTING_EVIDENCE"
+    assert result["claim_result"]["confidence"] == 0.7
+    assert "verdict adjusted" in result["claim_result"]["reasoning"].casefold()
 
 
 async def test_evidence_evaluator_maps_supported_output_to_claim_result(monkeypatch) -> None:
@@ -42,6 +131,8 @@ async def test_evidence_evaluator_maps_supported_output_to_claim_result(monkeypa
         "sources": ["https://first.example", "https://second.example"],
         "reasoning": "Two sources directly support the claim.",
         "search_queries": ["earth oblate spheroid"],
+        "source_sentence": "The Earth is an oblate spheroid.",
+        "fidelity_status": None,
     }
     assert evidence[0].is_influential is False
     assert evidence[1].is_influential is True

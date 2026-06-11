@@ -36,7 +36,9 @@ class VerifierState(BaseModel):
 
     claim_text: str = Field(alias="claim")
     source_sentence: str | None = None
+    disambiguated_sentence: str | None = None
     original_index: int | None = None
+    fidelity_status: str | None = None
     current_query: str | None = None
     all_queries: list[str] = Field(default_factory=list)
     evidence: Annotated[list[EvidenceItem], add] = Field(default_factory=list)

@@ -10,6 +10,8 @@ Generate one concise web search query that can retrieve evidence for the claim.
 Rules:
 - Return one neutral search-engine-friendly query.
 - Preserve important names, dates, quantities, and factual predicates.
+- Search for the claim as stated. Do not substitute a corrected or more likely version.
+- When the Source assertion or bracketed text in the Claim to verify specifies a definition or domain (e.g., botanical, legal, medical), include that frame in the query.
 - Target authoritative sources when possible.
 - Phrase the query to find both supporting and contradictory evidence.
 - Do not decide whether the claim is true or false.
@@ -21,7 +23,10 @@ After completing this task, your output will directly populate the following str
 """
 
 QUERY_GENERATOR_INITIAL_HUMAN_PROMPT = """
-Claim:
+Source assertion:
+{source_sentence}
+
+Claim to verify:
 {claim}
 
 Return exactly one targeted search query.
@@ -35,6 +40,8 @@ Rules:
 - Return one neutral search-engine-friendly query.
 - Do not repeat previous queries.
 - Address the missing evidence aspects directly.
+- Search for the claim as stated. Do not substitute a corrected or more likely version.
+- When the Source assertion or bracketed text in the Claim to verify specifies a definition or domain (e.g., botanical, legal, medical), include that frame in the query.
 - Use alternative phrasing or source types where useful.
 - Do not include explanations.
 
@@ -44,7 +51,10 @@ After completing this task, your output will directly populate the following str
 """
 
 QUERY_GENERATOR_ITERATIVE_HUMAN_PROMPT = """
-Claim:
+Source assertion:
+{source_sentence}
+
+Claim to verify:
 {claim}
 
 Previous queries:
@@ -70,13 +80,27 @@ Verdict rules:
 - INSUFFICIENT_EVIDENCE: evidence is missing, vague, indirect, or too weak.
 - CONFLICTING_EVIDENCE: credible snippets make opposing factual assertions and neither side clearly resolves it.
 
+Judge the Claim to verify as stated. Do not substitute a corrected version. False claims should be REFUTED when reliable evidence contradicts them.
+Judge the claim in the frame given by the Source assertion and any bracketed context on the claim (e.g., botanical, legal, or technical definitions).
+Do not treat colloquial or popular usage as refuting a technically framed claim.
+Use CONFLICTING_EVIDENCE when sources use incompatible senses of a term and the evidence does not resolve which frame applies.
+Use REFUTED only when evidence contradicts the claim within the stated frame.
+
+Example:
+- Claim: "Strawberries are not berries [according to botanical definitions of fruits]"
+- Colloquial snippet: "Strawberries are commonly called berries" -> not REFUTED; use CONFLICTING_EVIDENCE unless botanical evidence resolves the frame.
+- Botanical snippet: "Strawberries are aggregate fruits, not true berries" -> SUPPORTED.
+
 Set needs_more_evidence=true only when the verdict is INSUFFICIENT_EVIDENCE and a targeted search could resolve a missing aspect.
 Use 1-based source numbers for influential_sources.
 Keep reasoning to one or two sentences.
 """
 
 EVIDENCE_EVALUATOR_HUMAN_PROMPT = """
-Claim:
+Source assertion:
+{source_sentence}
+
+Claim to verify:
 {claim}
 
 Evidence:

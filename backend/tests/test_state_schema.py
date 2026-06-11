@@ -27,6 +27,8 @@ def test_claim_result_fields_match_architecture_contract() -> None:
         "sources",
         "reasoning",
         "search_queries",
+        "source_sentence",
+        "fidelity_status",
     }
 
 

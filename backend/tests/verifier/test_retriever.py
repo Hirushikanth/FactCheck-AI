@@ -4,6 +4,11 @@ from factcheck.search import SearchHit
 from factcheck.verifier.nodes import retriever
 from factcheck.verifier.nodes.retriever import _estimate_tokens, _truncate_snippet, retriever_node
 from factcheck.verifier.schemas import EvidenceItem, VerifierState
+from factcheck.verifier.utils import heuristic_prefilter_hits
+
+_BERRIES_CLAIM = (
+    "Strawberries are not berries [according to botanical definitions of fruits]"
+)
 
 
 async def test_retriever_searches_current_query_and_appends_new_evidence(monkeypatch) -> None:
@@ -81,6 +86,31 @@ def test_truncate_snippet_respects_word_limit_and_sentence_boundary() -> None:
 
 def test_estimate_tokens_uses_conservative_word_ratio() -> None:
     assert _estimate_tokens("one two three") == 4
+
+
+def test_heuristic_prefilter_ranks_botanical_above_colloquial_for_framed_claim() -> None:
+    colloquial = SearchHit(
+        url="https://example.com/popular",
+        title="Berries",
+        snippet="Strawberries are commonly called berries in everyday language.",
+    )
+    botanical = SearchHit(
+        url="https://example.com/botany",
+        title="Botanical berries",
+        snippet="Botanically, strawberries are aggregate fruits, not true berries.",
+    )
+
+    ranked = heuristic_prefilter_hits(
+        _BERRIES_CLAIM,
+        [colloquial, botanical],
+        top_n=2,
+        evaluation_frame="according to botanical definitions of fruits",
+    )
+
+    assert [hit.url for hit, _score in ranked] == [
+        "https://example.com/botany",
+        "https://example.com/popular",
+    ]
 
 
 async def test_retriever_respects_evidence_token_budget(monkeypatch) -> None:

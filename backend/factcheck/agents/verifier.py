@@ -11,6 +11,14 @@ def _claim_text(claim: ValidatedClaim | str) -> str:
     return claim.claim_text if isinstance(claim, ValidatedClaim) else claim
 
 
+def _source_sentence(claim: ValidatedClaim | str) -> str | None:
+    return claim.original_sentence if isinstance(claim, ValidatedClaim) else None
+
+
+def _fidelity_status(claim: ValidatedClaim | str) -> str | None:
+    return claim.fidelity_status if isinstance(claim, ValidatedClaim) else None
+
+
 async def verifier_node(
     state: FactCheckState,
 ) -> dict[str, list[ClaimResult] | str]:
@@ -33,6 +41,8 @@ async def verifier_node(
             "sources": [],
             "reasoning": f"Verifier failed while processing this claim: {exc}",
             "search_queries": [],
+            "source_sentence": _source_sentence(claim),
+            "fidelity_status": _fidelity_status(claim),
         }
         return {
             "current_agent": "verifier",

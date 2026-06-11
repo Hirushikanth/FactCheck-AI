@@ -16,6 +16,7 @@ from factcheck.verifier.prompts import (
 )
 from factcheck.verifier.schemas import IntermediateAssessment, VerifierState
 from factcheck.verifier.utils import format_evidence
+from factcheck.verifier.utils.framing import adjust_verdict_for_framing, extract_evaluation_frame
 
 
 class EvaluationOutput(BaseModel):
@@ -59,6 +60,8 @@ def _claim_result(
         "sources": [item.url for item in state.evidence],
         "reasoning": reasoning,
         "search_queries": state.all_queries,
+        "source_sentence": state.source_sentence,
+        "fidelity_status": state.fidelity_status,
     }
 
 
@@ -77,6 +80,26 @@ def _fallback_result(state: VerifierState) -> dict[str, ClaimResult | Intermedia
     }
 
 
+def _evaluation_messages(state: VerifierState) -> list[tuple[str, str]]:
+    source_sentence = state.source_sentence or state.claim_text
+    evaluation_frame = extract_evaluation_frame(state.claim_text)
+    frame_block = (
+        f"Evaluation frame:\n{evaluation_frame}\n\n" if evaluation_frame else ""
+    )
+    return [
+        ("system", EVIDENCE_EVALUATOR_SYSTEM_PROMPT),
+        (
+            "human",
+            frame_block
+            + EVIDENCE_EVALUATOR_HUMAN_PROMPT.format(
+                source_sentence=source_sentence,
+                claim=state.claim_text,
+                evidence=format_evidence(state.evidence),
+            ),
+        ),
+    ]
+
+
 async def evidence_evaluator_node(
     state: VerifierState,
 ) -> dict[str, ClaimResult | IntermediateAssessment | int]:
@@ -89,16 +112,7 @@ async def evidence_evaluator_node(
     response = await call_llm_with_structured_output(
         llm=llm,
         output_class=EvaluationOutput,
-        messages=[
-            ("system", EVIDENCE_EVALUATOR_SYSTEM_PROMPT),
-            (
-                "human",
-                EVIDENCE_EVALUATOR_HUMAN_PROMPT.format(
-                    claim=state.claim_text,
-                    evidence=format_evidence(state.evidence),
-                ),
-            ),
-        ],
+        messages=_evaluation_messages(state),
         context_desc=f"evidence evaluation for '{state.claim_text}'",
     )
 
@@ -122,12 +136,20 @@ async def evidence_evaluator_node(
             "iteration_count": state.iteration_count + 1,
         }
 
+    verdict, confidence, reasoning = adjust_verdict_for_framing(
+        claim_text=state.claim_text,
+        verdict=response.verdict,
+        confidence=response.confidence,
+        reasoning=response.reasoning,
+        evidence=state.evidence,
+    )
+
     return {
         "claim_result": _claim_result(
             state,
-            verdict=response.verdict,
-            confidence=response.confidence,
-            reasoning=response.reasoning,
+            verdict=verdict,
+            confidence=confidence,
+            reasoning=reasoning,
         ),
         "intermediate_assessment": intermediate,
     }
