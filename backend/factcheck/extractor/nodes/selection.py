@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from factcheck.extractor.config import SELECTION_CONFIG
 from factcheck.extractor.prompts import HUMAN_PROMPT, SELECTION_SYSTEM_PROMPT
@@ -20,9 +20,19 @@ logger = logging.getLogger(__name__)
 class SelectionOutput(BaseModel):
     """Structured output for the selection stage."""
 
+    reasoning: str = Field(
+        description="Step-by-step analysis of whether the sentence contains verifiable information."
+    )
     processed_sentence: str | None = Field(default=None)
     no_verifiable_claims: bool
     remains_unchanged: bool
+
+    @field_validator("reasoning", mode="before")
+    @classmethod
+    def _normalize_reasoning(cls, value: object) -> object:
+        if isinstance(value, list):
+            return "\n".join(str(item) for item in value if item is not None and str(item).strip())
+        return value
 
 
 async def _single_selection_attempt(

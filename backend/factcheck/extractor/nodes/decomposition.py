@@ -6,7 +6,7 @@ import asyncio
 import itertools
 import logging
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from factcheck.extractor.config import DECOMPOSITION_CONFIG
 from factcheck.extractor.prompts import DECOMPOSITION_SYSTEM_PROMPT, HUMAN_PROMPT
@@ -22,8 +22,18 @@ logger = logging.getLogger(__name__)
 class DecompositionOutput(BaseModel):
     """Structured output for the decomposition stage."""
 
+    reasoning: str = Field(
+        description="Step-by-step analysis of claim decomposition and decontextualization."
+    )
     claims: list[str] = Field(default_factory=list)
     no_claims: bool
+
+    @field_validator("reasoning", mode="before")
+    @classmethod
+    def _normalize_reasoning(cls, value: object) -> object:
+        if isinstance(value, list):
+            return "\n".join(str(item) for item in value if item is not None and str(item).strip())
+        return value
 
 
 async def _decomposition_stage(item: DisambiguatedContent) -> list[PotentialClaim]:

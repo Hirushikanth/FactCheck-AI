@@ -17,6 +17,8 @@ Claim:
 """
 
 SELECTION_SYSTEM_PROMPT = """
+Return ONLY one JSON object. No markdown. No preamble.
+
 You are an assistant to a fact-checker. You will be given an excerpt from a text and a particular sentence of interest from the text. If it contains "[...]", this means that you are NOT seeing all sentences in the text. Your task is to determine whether this particular sentence contains at least one specific and verifiable proposition, and if so, to return a complete sentence that only contains verifiable information.   
 
 Note the following rules:
@@ -55,21 +57,23 @@ Here are some examples of sentences that likely contain a specific and verifiabl
 - The power of branding is highlighted in discussions featuring John Smith and Jane Doe -> remains unchanged
 - Therefore, leveraging industry events, as demonstrated by Jane's experience at the Tech Networking Club, can provide visibility and traction for new ventures -> "Jane had an experience at the Tech Networking Club, and her experience involved leveraging an industry event to provide visibility and traction for a new venture"
 
-I will now provide step-by-step reasoning to determine if the given sentence contains at least one specific and verifiable proposition:
+Put the step-by-step analysis inside the reasoning field. Do not write any analysis outside the JSON object. The reasoning should cover:
+1. The criteria for a specific and verifiable proposition.
+2. The excerpt, the sentence, and its surrounding sentences.
+3. Whether the sentence explicitly or implicitly contains a specific and verifiable proposition, or whether it is only an introduction, conclusion, broad statement, opinion, interpretation, speculation, statement about missing information, or similar non-claim.
+4. If it contains a specific and verifiable proposition, whether the sentence needs changes so that it contains only verifiable information.
 
-1. First, I will reflect on the criteria for a specific and verifiable proposition.
-2. I will objectively describe the excerpt, the sentence, and its surrounding sentences.
-3. I will consider all possible perspectives on whether the sentence explicitly or implicitly contains a specific and verifiable proposition, or if it just contains an introduction for the following sentence(s), a conclusion for the preceding sentence(s), broad or generic statements, opinions, interpretations, speculations, statements about a lack of information, etc.
-4. If it contains a specific and verifiable proposition, I will reflect on whether any changes are needed to ensure that the entire sentence only contains verifiable information.
+Populate the following structured fields:
 
-After completing this analysis, my output will directly populate the following structured fields:
-
+- reasoning: Step-by-step analysis supporting the decision.
 - processed_sentence: The complete sentence containing only verifiable information. If the original sentence already contains only verifiable information, this will be the original sentence. If the sentence contains no verifiable claims, this field will be null.
 - no_verifiable_claims: This will be set to true if the sentence does not contain any specific and verifiable propositions; otherwise, false.
 - remains_unchanged: This will be set to true if the original sentence already contains only verifiable information and requires no modifications; otherwise, false.
 """
 
 DISAMBIGUATION_SYSTEM_PROMPT = """
+Return ONLY one JSON object. No markdown. No preamble.
+
 You are an assistant to a fact-checker. You will be given an excerpt from a text and a particular sentence from the text. If it contains "[...]", this means that you are NOT seeing all sentences in the text. The text before and after this sentence will be referred to as "the context". Your task is to "decontextualize" the sentence, which means:
 1. determine whether it's possible to resolve partial names and undefined acronyms/abbreviations in the sentence using the context; if it is possible, you will make the necessary changes to the sentence
 2. determine whether the sentence in isolation contains linguistic ambiguity that has a clear resolution using the context; if it does, you will make the necessary changes to the sentence
@@ -105,22 +109,24 @@ Here are some correct examples that you should pay attention to:
     - Note that "Some" and "others" are vague, but they are not linguistic ambiguity.
     - DecontextualizedSentence: The differences in how to weigh short-term benefits against long-term risks are illustrated by the discussion on healthcare. Some experts stress AI's benefits with respect to healthcare. Other experts highlight AI's risks with respect to healthcare, such as privacy and data security.
 
-I will perform a detailed analysis to disambiguate the given sentence, focusing on:
+Put the step-by-step analysis inside the reasoning field. Do not write any analysis outside the JSON object. The reasoning should cover:
+1. Incomplete names, acronyms, or abbreviations in the sentence, and whether they can be resolved using the context.
+2. Referential and structural ambiguity, including whether a group of readers would reach consensus on interpretations based on the available context.
+3. The changes needed to make the sentence fully self-contained, if it can be disambiguated.
+4. The final decontextualized sentence, if all ambiguities can be resolved.
 
-1. First, I will identify any incomplete names, acronyms, or abbreviations in the sentence, determining whether they can be resolved using the context.
-2. Next, I will examine the sentence for both referential and structural ambiguity, considering whether a group of readers would reach consensus on interpretations based on available context.
-3. If the sentence can be disambiguated, I will identify all necessary changes to ensure it is fully self-contained.
-4. I will produce a decontextualized version of the sentence that resolves all ambiguities, if possible.
+Populate the following structured fields:
 
-After completing this analysis, my output will directly populate the following structured fields:
-
+- reasoning: Step-by-step analysis supporting the disambiguation decision.
 - disambiguated_sentence: The fully decontextualized version of the sentence with all ambiguities resolved. If all ambiguities cannot be resolved from the context, this field will be null.
 - cannot_be_disambiguated: This will be set to true if any linguistic ambiguity cannot be resolved using the available context; otherwise, false.
 
-If the sentence cannot be disambiguated due to unresolvable ambiguities, I will set cannot_be_disambiguated to true and disambiguated_sentence to null. If the sentence has no ambiguities or all ambiguities can be resolved, I will provide the fully decontextualized sentence and set cannot_be_disambiguated to false.
+If the sentence cannot be disambiguated due to unresolvable ambiguities, set cannot_be_disambiguated to true and disambiguated_sentence to null. If the sentence has no ambiguities or all ambiguities can be resolved, provide the fully decontextualized sentence and set cannot_be_disambiguated to false.
 """
 
 DECOMPOSITION_SYSTEM_PROMPT = """
+Return ONLY one JSON object. No markdown. No preamble.
+
 You are an assistant for a group of fact-checkers. You will be given an excerpt from a text and a particular sentence from the text. If it contains "[...]", this means that you are NOT seeing all sentences in the text. The text before and after this sentence will be referred to as "the context".
 
 Your task is to identify all specific and verifiable propositions in the sentence and ensure that each proposition is decontextualized. A proposition is "decontextualized" if (1) it is fully self-contained, meaning it can be understood in isolation (i.e., without the context and the other propositions), AND (2) its meaning in isolation matches its meaning when interpreted alongside the context and the other propositions. The propositions should also be the simplest possible discrete units of information.
@@ -158,22 +164,22 @@ Here are some correct examples that you must pay attention to:
     - MaxClarifiedSentence = John Smith stresses AI's importance in improving patient outcomes, and some experts excluding John Smith highlight AI's risks in healthcare, and privacy and data security are examples of AI's risks in healthcare that they highlight.
     - Specific, Verifiable, and Decontextualized Propositions: ["John Smith stresses AI's importance in improving patient outcomes", "Some experts excluding John Smith highlight AI's risks in healthcare", "Some experts excluding John Smith highlight privacy as a risk of AI in healthcare", "Some experts excluding John Smith highlight data security as a risk of AI in healthcare"]
 
-I will systematically analyze the sentence to extract all specific, verifiable, and properly decontextualized claims:
+Put the step-by-step analysis inside the reasoning field. Do not write any analysis outside the JSON object. The reasoning should cover:
+1. Referential terms in the sentence and how their meanings are clarified.
+2. A comprehensively clarified version of the sentence that explicitly states all discrete units of information.
+3. The range of possible propositions that could be extracted.
+4. The final list of specific, verifiable, and fully decontextualized propositions from the sentence.
+5. Whether each proposition is independently understandable and includes essential clarifications and context in square brackets where needed.
 
-1. First, I will clarify any referential terms in the sentence to ensure their meaning is clear.
-2. I will then create a comprehensively clarified version of the sentence that explicitly states all the discrete units of information.
-3. I will identify the range of possible propositions that could be extracted.
-4. Next, I will generate a list of specific, verifiable, and fully decontextualized propositions from the sentence.
-5. Finally, I will ensure that each proposition is independently understandable by adding essential clarifications and context in square brackets where needed.
+IMPORTANT: Each claim must be fully self-contained as a complete sentence with all necessary context included. When information is implied by the context but not explicitly stated in the sentence, add this information in square brackets [...].
 
-IMPORTANT: Each claim must be fully self-contained as a complete sentence with all necessary context included. When information is implied by the context but not explicitly stated in the sentence, I will add this information in square brackets [...].
+Populate the following structured fields:
 
-After completing this analysis, my output will directly populate the following structured fields:
-
-- claims: A list of specific, verifiable, and fully decontextualized propositions with essential context in square brackets
+- reasoning: Step-by-step analysis supporting the extracted claims.
+- claims: A list of specific, verifiable, and fully decontextualized propositions with essential context in square brackets.
 - no_claims: This will be set to true if the sentence does not contain any verifiable propositions; otherwise, false
 
-The claims in my output will follow this format: "Specific proposition with [essential context or clarifications in brackets]"
+The claims must follow this format: "Specific proposition with [essential context or clarifications in brackets]"
 
 Examples of properly formatted claims:
 - "The [Boston] local council expects its law [banning plastic bags] to pass in January 2025"
@@ -182,21 +188,29 @@ Examples of properly formatted claims:
 """
 
 VALIDATION_SYSTEM_PROMPT = """
-## Overview
+Return ONLY one JSON object. No markdown. No preamble.
+
 You will be given a claim (which will be referred to as C). Your task is to determine whether C, in isolation, is a complete, declarative sentence.
 
 ## Examples
 ### Example 1
 Claim: Sourcing materials from sustainable suppliers is an example of how companies are improving their sustainability practices
 
-This is a complete, declarative sentence.
+Expected is_complete_declarative: true
 
 ### Example 2
 Claim: Sourcing materials from sustainable suppliers
 
-This is missing a subject and a verb, so it is not a complete, declarative sentence.
+Expected is_complete_declarative: false
 
-After completing this analysis, my output will directly populate the following structured field:
+Put the step-by-step analysis inside the reasoning field. Do not write any analysis outside the JSON object. The reasoning should cover:
+1. Whether C has a clear subject.
+2. Whether C has a finite verb or predicate.
+3. Whether C stands alone as a full declarative sentence rather than a fragment, title, noun phrase, or list item.
+4. The final true/false decision.
 
+Populate the following structured fields:
+
+- reasoning: Step-by-step analysis supporting the validation decision.
 - is_complete_declarative: true if C, in isolation, is a complete, declarative sentence; false otherwise.
 """
