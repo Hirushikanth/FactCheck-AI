@@ -32,9 +32,15 @@ async def test_pipeline_runs_extractor_before_verifier(monkeypatch) -> None:
 
     import factcheck.graph.pipeline as pipeline
     import factcheck.agents.verifier as verifier
+    import factcheck.agents.reporter as reporter
+
+    async def reporter_stub(state):
+        assert state["claim_results"][0]["verdict"] == "SUPPORTED"
+        return "# Fact-Check Report\n\n### Claim 1 - SUPPORTED"
 
     monkeypatch.setattr(pipeline, "extractor_node", extractor_stub)
     monkeypatch.setattr(verifier, "run_verifier", verifier_stub)
+    monkeypatch.setattr(reporter, "run_reporter", reporter_stub)
 
     graph = build_graph()
     result = await graph.ainvoke(
@@ -53,7 +59,8 @@ async def test_pipeline_runs_extractor_before_verifier(monkeypatch) -> None:
 
     assert result["current_agent"] == "reporter"
     assert result["status"] == "done"
-    assert result["final_report"] == "Phase 1 pipeline scaffold completed."
+    assert result["final_report"].startswith("# Fact-Check Report")
+    assert "SUPPORTED" in result["final_report"]
     assert result["extracted_claims"] == [claim]
     assert len(result["claim_results"]) == 1
     assert result["claim_results"][0]["verdict"] == "SUPPORTED"
