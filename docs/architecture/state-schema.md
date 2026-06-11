@@ -16,7 +16,7 @@ The shared state schema is the Phase 1 contract between all future agents. After
 | Field | Type | Description |
 |---|---|---|
 | `claim` | `str` | Exact extracted claim text. |
-| `verdict` | `SUPPORTED | REFUTED | INSUFFICIENT_EVIDENCE` | Verdict based on retrieved evidence. |
+| `verdict` | `SUPPORTED | REFUTED | INSUFFICIENT_EVIDENCE | CONFLICTING_EVIDENCE` | Verdict based on retrieved evidence. |
 | `confidence` | `float` | Normalized confidence score from `0.0` to `1.0`. |
 | `evidence` | `list[str]` | Evidence snippets given to the verifier. |
 | `sources` | `list[str]` | Source URLs corresponding to evidence snippets. |
@@ -28,7 +28,7 @@ The shared state schema is the Phase 1 contract between all future agents. After
 | Field | Type | Owner | Description |
 |---|---|---|---|
 | `raw_input` | `str` | User Input | Original user-submitted text. |
-| `extracted_claims` | `list[str]` | Extractor | Atomic, self-contained factual claims. |
+| `extracted_claims` | `list[ValidatedClaim]` | Extractor | Atomic, self-contained factual claims with original sentence context. |
 | `claim_results` | `list[ClaimResult]` | Verifier | One result per extracted claim, populated incrementally. |
 | `final_report` | `str | None` | Reporter | Final markdown report. |
 | `messages` | `Annotated[list[BaseMessage], add_messages]` | Dialogue + User | Conversation history with append semantics. |

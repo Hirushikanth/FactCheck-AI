@@ -27,7 +27,7 @@ Out of scope for Phase 2:
 - Poetry 1.8+
 - Node.js 20+
 - Git
-- Ollama with `qwen2.5:3b`
+- Ollama with `mistral:7b`
 
 Verify the local toolchain:
 
@@ -40,7 +40,7 @@ Verify the local toolchain:
 Mode A runs Ollama on this MacBook:
 
 ```bash
-ollama pull qwen2.5:3b
+ollama pull mistral:7b
 ollama serve
 ```
 
@@ -50,13 +50,15 @@ Use:
 OLLAMA_BASE_URL=http://localhost:11434
 ```
 
-Mode B runs Ollama on a Windows PC connected to the same local network. On the Windows host, set `OLLAMA_HOST=0.0.0.0`, allow inbound TCP port `11434`, pull `qwen2.5:3b`, then set the MacBook backend `.env` to:
+Mode B runs Ollama on a Windows PC connected to the same local network. On the Windows host, set `OLLAMA_HOST=0.0.0.0`, allow inbound TCP port `11434`, pull `mistral:7b`, then set the MacBook backend `.env` to:
 
 ```bash
 OLLAMA_BASE_URL=http://<windows-lan-ip>:11434
 ```
 
 See [`docs/setup/ollama.md`](docs/setup/ollama.md) for the full setup runbook.
+
+The original proposal referenced Qwen 2.5 3B, but the implementation uses Mistral 7B because it produced more reliable structured verifier outputs during development.
 
 ## Search Fallback Configuration
 

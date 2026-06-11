@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import re
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from factcheck.extractor.config import DISAMBIGUATION_CONFIG
 from factcheck.extractor.prompts import DISAMBIGUATION_SYSTEM_PROMPT, HUMAN_PROMPT
@@ -22,8 +22,18 @@ logger = logging.getLogger(__name__)
 class DisambiguationOutput(BaseModel):
     """Structured output for the disambiguation stage."""
 
+    reasoning: str = Field(
+        description="Step-by-step analysis of contextual references and linguistic ambiguity."
+    )
     disambiguated_sentence: str | None = Field(default=None)
     cannot_be_disambiguated: bool
+
+    @field_validator("reasoning", mode="before")
+    @classmethod
+    def _normalize_reasoning(cls, value: object) -> object:
+        if isinstance(value, list):
+            return "\n".join(str(item) for item in value if item is not None and str(item).strip())
+        return value
 
 
 _CONTEXTUAL_REFERENCE_PATTERN = re.compile(

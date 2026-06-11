@@ -1,6 +1,8 @@
-"""Internal data models for the Claimify-style extractor."""
+"""Internal data models for the claim extractor."""
 
 from __future__ import annotations
+
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -35,6 +37,7 @@ class PotentialClaim(BaseModel):
     disambiguated_sentence: str
     original_sentence: str
     original_index: int
+    fidelity_status: Literal["faithful", "fallback"] = "faithful"
 
 
 class ValidatedClaim(BaseModel):
@@ -45,6 +48,7 @@ class ValidatedClaim(BaseModel):
     disambiguated_sentence: str
     original_sentence: str
     original_index: int
+    fidelity_status: Literal["faithful", "fallback"] = "faithful"
 
 
 class ExtractorState(BaseModel):

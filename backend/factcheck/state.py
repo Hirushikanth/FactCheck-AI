@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Literal, TypedDict
+from typing import Annotated, Literal, NotRequired, TypedDict
 
 from langchain_core.messages import BaseMessage
 from langgraph.graph.message import add_messages
 
+from factcheck.extractor.schemas import ValidatedClaim
+
 
 PipelineStatus = Literal["idle", "running", "done", "error"]
-Verdict = Literal["SUPPORTED", "REFUTED", "INSUFFICIENT_EVIDENCE"]
+Verdict = Literal["SUPPORTED", "REFUTED", "INSUFFICIENT_EVIDENCE", "CONFLICTING_EVIDENCE"]
 
 
 class ClaimResult(TypedDict):
@@ -22,13 +24,15 @@ class ClaimResult(TypedDict):
     sources: list[str]
     reasoning: str
     search_queries: list[str]
+    source_sentence: NotRequired[str | None]
+    fidelity_status: NotRequired[str | None]
 
 
 class FactCheckState(TypedDict):
     """Shared state object passed through the LangGraph pipeline."""
 
     raw_input: str
-    extracted_claims: list[str]
+    extracted_claims: list[ValidatedClaim]
     claim_results: list[ClaimResult]
     final_report: str | None
     messages: Annotated[list[BaseMessage], add_messages]

@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import sys
+import types
+
 from factcheck.config import AppSettings
 from factcheck.search import SearchHit, build_provider_chain, search_with_fallback
+from factcheck.search.providers import DuckDuckGoProvider
 
 
 class FakeProvider:
@@ -75,3 +79,37 @@ def test_build_provider_chain_includes_keyed_fallbacks_when_configured() -> None
     providers = build_provider_chain(settings)
 
     assert [provider.name for provider in providers] == ["duckduckgo", "tavily", "serper"]
+
+
+async def test_duckduckgo_provider_uses_renamed_ddgs_package(monkeypatch) -> None:
+    class FakeDDGS:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, traceback):
+            return False
+
+        def text(self, query: str, max_results: int):
+            assert query == "boiling point of water"
+            assert max_results == 1
+            return [
+                {
+                    "href": "https://example.com/water",
+                    "title": "Water boiling point",
+                    "body": "Water boils at 100 degrees Celsius at sea level.",
+                }
+            ]
+
+    fake_ddgs_module = types.SimpleNamespace(DDGS=FakeDDGS)
+    monkeypatch.setitem(sys.modules, "ddgs", fake_ddgs_module)
+    monkeypatch.setitem(sys.modules, "duckduckgo_search", None)
+
+    hits = await DuckDuckGoProvider().search("boiling point of water", max_results=1)
+
+    assert hits == [
+        SearchHit(
+            url="https://example.com/water",
+            title="Water boiling point",
+            snippet="Water boils at 100 degrees Celsius at sea level.",
+        )
+    ]

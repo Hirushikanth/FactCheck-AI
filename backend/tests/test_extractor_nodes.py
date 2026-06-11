@@ -1,13 +1,61 @@
 from __future__ import annotations
 
-from factcheck.extractor.nodes import disambiguation, sentence_splitter, validation
+from factcheck.extractor.nodes import disambiguation, validation
+from factcheck.extractor.nodes.decomposition import DecompositionOutput
 from factcheck.extractor.nodes.disambiguation import (
+    DisambiguationOutput,
     _single_disambiguation_attempt,
     _needs_contextual_disambiguation,
 )
 from factcheck.extractor.nodes.sentence_splitter import _sentence_splitter_and_context_creator
+from factcheck.extractor.nodes.selection import SelectionOutput
 from factcheck.extractor.nodes.validation import ValidationOutput, validation_node
 from factcheck.extractor.schemas import ContextualSentence, ExtractorState, PotentialClaim, SelectedContent
+
+
+def test_extractor_outputs_start_with_reasoning_field() -> None:
+    assert list(ValidationOutput.model_fields) == ["reasoning", "is_complete_declarative"]
+    assert list(SelectionOutput.model_fields) == [
+        "reasoning",
+        "processed_sentence",
+        "no_verifiable_claims",
+        "remains_unchanged",
+    ]
+    assert list(DisambiguationOutput.model_fields) == [
+        "reasoning",
+        "disambiguated_sentence",
+        "cannot_be_disambiguated",
+    ]
+    assert list(DecompositionOutput.model_fields) == ["reasoning", "claims", "no_claims"]
+
+
+def test_extractor_outputs_normalize_reasoning_lists_to_strings() -> None:
+    expected_reasoning = "step one\nstep two"
+
+    outputs = [
+        ValidationOutput(
+            reasoning=["step one", "step two"],
+            is_complete_declarative=True,
+        ),
+        SelectionOutput(
+            reasoning=["step one", "step two"],
+            processed_sentence="Ada Lovelace wrote notes.",
+            no_verifiable_claims=False,
+            remains_unchanged=True,
+        ),
+        DisambiguationOutput(
+            reasoning=["step one", "step two"],
+            disambiguated_sentence="Ada Lovelace wrote notes.",
+            cannot_be_disambiguated=False,
+        ),
+        DecompositionOutput(
+            reasoning=["step one", "step two"],
+            claims=["Ada Lovelace wrote notes."],
+            no_claims=False,
+        ),
+    ]
+
+    assert [output.reasoning for output in outputs] == [expected_reasoning] * len(outputs)
 
 
 async def test_sentence_splitter_builds_context_windows() -> None:
@@ -31,7 +79,10 @@ async def test_sentence_splitter_builds_context_windows() -> None:
 async def test_validation_node_filters_invalid_and_duplicate_claims(monkeypatch) -> None:
     async def fake_structured_call(*, llm, output_class, messages, context_desc=""):
         claim_text = messages[-1][1]
-        return ValidationOutput(is_complete_declarative="Fragment" not in claim_text)
+        return ValidationOutput(
+            reasoning="Test stub reasoning.",
+            is_complete_declarative="Fragment" not in claim_text,
+        )
 
     monkeypatch.setattr(validation, "call_llm_with_structured_output", fake_structured_call)
     monkeypatch.setattr(validation, "get_extractor_llm", lambda temperature: object())

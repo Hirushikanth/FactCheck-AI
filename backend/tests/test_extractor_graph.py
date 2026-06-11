@@ -13,7 +13,7 @@ from factcheck.extractor.schemas import (
 )
 
 
-async def test_extractor_graph_runs_claimify_stages_in_order(monkeypatch) -> None:
+async def test_extractor_graph_runs_claim_extraction_stages_in_order(monkeypatch) -> None:
     calls: list[str] = []
 
     async def sentence_splitter_node(state):
@@ -93,24 +93,20 @@ async def test_extractor_graph_runs_claimify_stages_in_order(monkeypatch) -> Non
     assert result["validated_claims"][0].claim_text == "Ada Lovelace wrote the first algorithm."
 
 
-async def test_run_extractor_returns_validated_claim_text(monkeypatch) -> None:
+async def test_run_extractor_returns_validated_claims(monkeypatch) -> None:
+    validated_claim = ValidatedClaim(
+        claim_text="Ada Lovelace wrote the first algorithm.",
+        is_complete_declarative=True,
+        disambiguated_sentence="Ada Lovelace wrote the first algorithm.",
+        original_sentence="Ada wrote the first algorithm.",
+        original_index=0,
+    )
+
     class FakeExtractorGraph:
         async def ainvoke(self, state):
             assert state.raw_input == "Ada wrote the first algorithm."
-            return {
-                "validated_claims": [
-                    ValidatedClaim(
-                        claim_text="Ada Lovelace wrote the first algorithm.",
-                        is_complete_declarative=True,
-                        disambiguated_sentence="Ada Lovelace wrote the first algorithm.",
-                        original_sentence="Ada wrote the first algorithm.",
-                        original_index=0,
-                    )
-                ]
-            }
+            return {"validated_claims": [validated_claim]}
 
     monkeypatch.setattr(extractor_graph, "build_extractor_graph", lambda: FakeExtractorGraph())
 
-    assert await run_extractor("Ada wrote the first algorithm.") == [
-        "Ada Lovelace wrote the first algorithm."
-    ]
+    assert await run_extractor("Ada wrote the first algorithm.") == [validated_claim]

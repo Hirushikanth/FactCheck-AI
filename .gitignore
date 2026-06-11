@@ -1,60 +1,154 @@
-# Python
+# =============================================================================
+# FactCheck AI — repository-wide ignore rules
+# =============================================================================
+# Keep templates tracked: backend/.env.example must remain in version control.
+# =============================================================================
+
+# --- Python ------------------------------------------------------------------
 __pycache__/
 *.py[cod]
+*$py.class
 *.pyo
+*.so
+*.egg
+*.egg-info/
+.eggs/
+build/
+dist/
+__pypackages__/
+pip-wheel-metadata/
+pip-log.txt
+pip-delete-this-directory.txt
+.Python
+*.manifest
+*.spec
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Test / lint / type-check caches
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
 .pyre/
 .pytype/
+.dmypy.json
+.hypothesis/
+.tox/
+.nox/
+coverage.xml
 .coverage
 .coverage.*
-coverage.xml
 htmlcov/
-.venv/
-venv/
-env/
-ENV/
-__pypackages__/
-*.egg-info/
-.eggs/
-build/
-dist/
+junit.xml
+test-results/
+prof/
 
-# Environment and local data
+# --- Environment & secrets ---------------------------------------------------
 .env
 .env.local
 .env.*.local
 backend/.env
 backend/.env.local
 backend/.env.*.local
+
+# Explicitly keep env templates in git
+!.env.example
+!**/.env.example
+
+# API keys, certs, and other credentials
+secrets/
+credentials.json
+*.pem
+*.key
+*.p12
+*.pfx
+
+# --- Local data & persistence ------------------------------------------------
 data/
 backend/data/
 *.db
 *.sqlite
 *.sqlite3
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
 
-# Node / frontend
+# LangGraph / local checkpoint stores (future use)
+.langgraph_api/
+checkpoints/
+
+# --- Node / frontend ---------------------------------------------------------
 node_modules/
+.npm/
+.yarn/
+.pnp.*
+.pnp.js
+.yarn/cache/
+.yarn/unplugged/
+.yarn/build-state.yml
+.yarn/install-state.gz
+
+# Vite / React / Next.js build output
 .vite/
-coverage/
+dist/
+build/
+out/
+.next/
+.turbo/
+.vercel/
+*.tsbuildinfo
+
+# Package manager logs
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
+lerna-debug.log*
 
-# Local development UIs
+# Frontend env overrides (when frontend/ is added)
+frontend/.env
+frontend/.env.local
+frontend/.env.*.local
+
+# --- Local development UIs ---------------------------------------------------
+# Temporary SSE debug terminal — see docs/dev/hack-terminal.md
 dev-hack-terminal/
 
-# IDE / OS
-.DS_Store
+# --- IDE / editor ------------------------------------------------------------
 .idea/
 .vscode/
 .cursor/
+*.sublime-project
+*.sublime-workspace
+*.swp
+*.swo
+*~
+*.orig
+*.rej
 
-# Logs
+# --- OS junk -----------------------------------------------------------------
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# --- Logs --------------------------------------------------------------------
 *.log
+logs/
 
-# Local worktrees
+# --- Tooling / runtime -------------------------------------------------------
+.python-version
+poetry.toml
+
+# --- Git worktrees -----------------------------------------------------------
 .worktrees/
 worktrees/

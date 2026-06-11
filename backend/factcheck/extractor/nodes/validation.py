@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 
 from factcheck.extractor.config import VALIDATION_CONFIG
 from factcheck.extractor.prompts import VALIDATION_HUMAN_PROMPT, VALIDATION_SYSTEM_PROMPT
@@ -16,11 +17,81 @@ from factcheck.llm.structured import call_llm_with_structured_output
 
 logger = logging.getLogger(__name__)
 
+_TOKEN_RE = re.compile(r"[A-Za-z0-9]+(?:-[A-Za-z0-9]+)?")
+_FINITE_VERB_HINTS = {
+    "am",
+    "are",
+    "be",
+    "been",
+    "being",
+    "built",
+    "can",
+    "could",
+    "did",
+    "do",
+    "does",
+    "had",
+    "has",
+    "have",
+    "is",
+    "may",
+    "might",
+    "must",
+    "was",
+    "were",
+    "will",
+    "would",
+    "wrote",
+}
+_FRAGMENT_STARTS = {
+    "about",
+    "after",
+    "before",
+    "by",
+    "during",
+    "for",
+    "from",
+    "in",
+    "of",
+    "on",
+    "to",
+    "with",
+}
+
 
 class ValidationOutput(BaseModel):
     """Structured output for claim validation."""
 
-    is_complete_declarative: bool
+    reasoning: str = Field(
+        description="Step-by-step analysis of whether the claim is a complete declarative sentence."
+    )
+    is_complete_declarative: bool = Field(
+        description="True if the claim is a complete, declarative sentence in isolation."
+    )
+
+    @field_validator("reasoning", mode="before")
+    @classmethod
+    def _normalize_reasoning(cls, value: object) -> object:
+        if isinstance(value, list):
+            return "\n".join(str(item) for item in value if item is not None and str(item).strip())
+        return value
+
+
+def _looks_like_complete_declarative(claim_text: str) -> bool:
+    """Conservative backup for complete assertions the LLM validator rejects."""
+
+    stripped = claim_text.strip()
+    if not stripped or stripped.endswith(("?", "!")):
+        return False
+
+    tokens = [token.casefold() for token in _TOKEN_RE.findall(stripped)]
+    if len(tokens) < 3 or tokens[0] in _FRAGMENT_STARTS:
+        return False
+
+    return any(
+        token in _FINITE_VERB_HINTS or token.endswith(("ed", "s"))
+        for token in tokens[1:]
+    )
 
 
 async def _validate_claim(potential_claim: PotentialClaim) -> ValidatedClaim:
@@ -36,10 +107,12 @@ async def _validate_claim(potential_claim: PotentialClaim) -> ValidatedClaim:
     )
     return ValidatedClaim(
         claim_text=potential_claim.claim_text,
-        is_complete_declarative=bool(response and response.is_complete_declarative),
+        is_complete_declarative=bool(response and response.is_complete_declarative)
+        or _looks_like_complete_declarative(potential_claim.claim_text),
         disambiguated_sentence=potential_claim.disambiguated_sentence,
         original_sentence=potential_claim.original_sentence,
         original_index=potential_claim.original_index,
+        fidelity_status=potential_claim.fidelity_status,
     )
 
 
