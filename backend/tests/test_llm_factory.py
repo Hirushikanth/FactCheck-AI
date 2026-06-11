@@ -51,3 +51,25 @@ def test_get_verifier_llm_caps_explicit_num_ctx_to_settings_ceiling(monkeypatch)
     factory.get_verifier_llm(temperature=0.0, num_ctx=4096, settings=settings)
 
     assert captured["num_ctx"] == 2048
+
+
+def test_get_reporter_llm_applies_reporter_runtime_options(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    class FakeChatOllama:
+        def __init__(self, **kwargs: object) -> None:
+            captured.update(kwargs)
+
+    monkeypatch.setattr(factory, "ChatOllama", FakeChatOllama)
+
+    llm = factory.get_reporter_llm(
+        temperature=0.1,
+        num_ctx=2048,
+        num_predict=512,
+        settings=AppSettings(ollama_num_ctx=8192, _env_file=None),
+    )
+
+    assert isinstance(llm, FakeChatOllama)
+    assert captured["temperature"] == 0.1
+    assert captured["num_ctx"] == 2048
+    assert captured["num_predict"] == 512
