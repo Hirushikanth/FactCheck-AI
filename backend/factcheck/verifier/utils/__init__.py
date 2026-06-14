@@ -5,6 +5,8 @@ from __future__ import annotations
 import re
 from urllib.parse import urlsplit
 
+import tiktoken
+
 from factcheck.search import SearchHit
 from factcheck.verifier.schemas import EvidenceItem
 from factcheck.verifier.utils.framing import (
@@ -45,6 +47,8 @@ _STOPWORDS = {
 _FRAME_MATCH_BOOST = 0.15
 _COLLOQUIAL_PENALTY = 0.1
 
+_ENCODER = tiktoken.get_encoding("cl100k_base")
+
 
 def truncate_snippet(text: str, *, max_words: int) -> str:
     """Trim a snippet to a word budget, preferring a sentence boundary."""
@@ -64,9 +68,28 @@ def truncate_snippet(text: str, *, max_words: int) -> str:
 
 
 def estimate_tokens(text: str) -> int:
-    """Approximate token count conservatively for English snippets."""
+    """Return the estimated token count for text using cl100k_base."""
 
-    return int(len(text.split()) / 0.75)
+    if not text:
+        return 0
+    return len(_ENCODER.encode(text))
+
+
+def estimate_formatted_evidence_tokens(
+    *,
+    url: str,
+    title: str,
+    snippet: str,
+    source_index: int = 1,
+) -> int:
+    """Estimate tokens for one evidence block as sent to the evaluator."""
+
+    block = (
+        f"Source {source_index}: {url}\n"
+        f"Title: {title or 'Untitled'}\n"
+        f"Snippet: {snippet}"
+    )
+    return estimate_tokens(block)
 
 
 def tokens(text: str) -> set[str]:

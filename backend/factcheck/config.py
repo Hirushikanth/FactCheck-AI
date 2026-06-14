@@ -26,6 +26,10 @@ class AppSettings(BaseSettings):
     ollama_concurrency: int = Field(default=1, ge=1)
     search_max_results: int = 5
     search_provider_order: str = "duckduckgo,tavily,serper"
+    ddg_max_retries: int = Field(default=3, ge=1)
+    ddg_retry_base_delay: float = Field(default=1.0, ge=0.0)
+    ddg_retry_max_delay: float = Field(default=8.0, ge=0.0)
+    ddg_min_request_interval: float = Field(default=1.5, ge=0.0)
     tavily_api_key: str | None = None
     serper_api_key: str | None = None
     dev_stream_enabled: bool = False

@@ -2,9 +2,13 @@ from __future__ import annotations
 
 from factcheck.search import SearchHit
 from factcheck.verifier.nodes import retriever
-from factcheck.verifier.nodes.retriever import _estimate_tokens, _truncate_snippet, retriever_node
+from factcheck.verifier.nodes.retriever import _truncate_snippet, retriever_node
 from factcheck.verifier.schemas import EvidenceItem, VerifierState
-from factcheck.verifier.utils import heuristic_prefilter_hits
+from factcheck.verifier.utils import (
+    estimate_formatted_evidence_tokens,
+    estimate_tokens,
+    heuristic_prefilter_hits,
+)
 
 _BERRIES_CLAIM = (
     "Strawberries are not berries [according to botanical definitions of fruits]"
@@ -84,8 +88,29 @@ def test_truncate_snippet_respects_word_limit_and_sentence_boundary() -> None:
     assert truncated == "First sentence has useful evidence."
 
 
-def test_estimate_tokens_uses_conservative_word_ratio() -> None:
-    assert _estimate_tokens("one two three") == 4
+def test_estimate_tokens_uses_tiktoken() -> None:
+    assert estimate_tokens("") == 0
+    assert estimate_tokens("one two three") > 0
+
+
+def test_estimate_tokens_counts_url_heavy_text_higher_than_word_split() -> None:
+    url_heavy = "https://example.com/path/to/resource?query=value&other=12345"
+    word_split_estimate = int(len(url_heavy.split()) / 0.75)
+
+    assert estimate_tokens(url_heavy) > word_split_estimate
+
+
+def test_estimate_formatted_evidence_tokens_includes_metadata_overhead() -> None:
+    snippet = "Short evidence snippet."
+    snippet_only = estimate_tokens(snippet)
+    formatted = estimate_formatted_evidence_tokens(
+        url="https://science.example/earth",
+        title="Earth shape",
+        snippet=snippet,
+        source_index=1,
+    )
+
+    assert formatted > snippet_only
 
 
 def test_heuristic_prefilter_ranks_botanical_above_colloquial_for_framed_claim() -> None:

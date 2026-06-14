@@ -8,7 +8,7 @@ from factcheck.search import SearchHit, search_with_fallback
 from factcheck.verifier.config import MAX_SNIPPET_WORDS, RANKER_HEURISTIC_TOP_N
 from factcheck.verifier.schemas import EvidenceItem, VerifierState
 from factcheck.verifier.utils import (
-    estimate_tokens,
+    estimate_formatted_evidence_tokens,
     heuristic_prefilter_hits,
     truncate_snippet,
 )
@@ -17,10 +17,6 @@ from factcheck.verifier.utils.framing import extract_evaluation_frame
 
 def _truncate_snippet(text: str, max_words: int = MAX_SNIPPET_WORDS) -> str:
     return truncate_snippet(text, max_words=max_words)
-
-
-def _estimate_tokens(text: str) -> int:
-    return estimate_tokens(text)
 
 
 def _normalized_url(url: str) -> str:
@@ -65,7 +61,13 @@ async def retriever_node(
         evaluation_frame=extract_evaluation_frame(state.claim_text),
     ):
         snippet = _truncate_snippet(hit.snippet)
-        token_count = _estimate_tokens(snippet)
+        source_index = len(state.evidence) + len(new_evidence) + 1
+        token_count = estimate_formatted_evidence_tokens(
+            url=hit.url,
+            title=hit.title,
+            snippet=snippet,
+            source_index=source_index,
+        )
         if state.estimated_evidence_tokens + new_tokens + token_count > state.max_evidence_tokens:
             break
 
