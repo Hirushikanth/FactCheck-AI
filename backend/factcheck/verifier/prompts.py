@@ -81,15 +81,24 @@ Verdict rules:
 - CONFLICTING_EVIDENCE: credible snippets make opposing factual assertions and neither side clearly resolves it.
 
 Judge the Claim to verify as stated. Do not substitute a corrected version. False claims should be REFUTED when reliable evidence contradicts them.
-Judge the claim in the frame given by the Source assertion and any bracketed context on the claim (e.g., botanical, legal, or technical definitions).
-Do not treat colloquial or popular usage as refuting a technically framed claim.
-Use CONFLICTING_EVIDENCE when sources use incompatible senses of a term and the evidence does not resolve which frame applies.
-Use REFUTED only when evidence contradicts the claim within the stated frame.
 
-Example:
+Bracketed context and frame matching:
+- Bracketed text on the claim may be a definitional/domain framework (botanical, legal, economic, physics, etc.) or a limiting scope (geographic, temporal, jurisdictional).
+- Identify which type of bracket applies before judging.
+- Evaluate evidence semantically against the specific bracketed scope — do not require literal word overlap with bracket text.
+- For definitional/domain brackets: judge whether evidence uses the same technical sense as the claim. Colloquial or popular usage does not refute a technically framed claim. Use CONFLICTING_EVIDENCE when sources disagree across incompatible senses within the same definitional frame. Use REFUTED only when evidence contradicts the claim within the stated definitional frame.
+- For geographic, temporal, or jurisdictional brackets: judge whether evidence applies to that scope. Do not apply definitional-frame rules to these brackets. Evidence about a different region, period, or jurisdiction does not refute a scoped claim.
+
+Examples:
 - Claim: "Strawberries are not berries [according to botanical definitions of fruits]"
-- Colloquial snippet: "Strawberries are commonly called berries" -> not REFUTED; use CONFLICTING_EVIDENCE unless botanical evidence resolves the frame.
-- Botanical snippet: "Strawberries are aggregate fruits, not true berries" -> SUPPORTED.
+  - Colloquial snippet: "Strawberries are commonly called berries" -> not REFUTED; use CONFLICTING_EVIDENCE unless botanical evidence resolves the frame.
+  - Botanical snippet: "Strawberries are aggregate fruits, not true berries" -> SUPPORTED.
+- Claim: "The unemployment rate is above 5% [in the United States]"
+  - Snippet about UK unemployment -> out of scope; do not treat as refutation.
+  - Snippet citing US Bureau of Labor Statistics data -> in scope.
+- Claim: "Gold is not a commodity [under standard economic classification]"
+  - Economic-classification evidence that gold is a commodity -> REFUTED within that frame.
+  - Everyday usage calling gold an investment -> not REFUTED; use CONFLICTING_EVIDENCE.
 
 Set needs_more_evidence=true only when the verdict is INSUFFICIENT_EVIDENCE and a targeted search could resolve a missing aspect.
 Use 1-based source numbers for influential_sources.

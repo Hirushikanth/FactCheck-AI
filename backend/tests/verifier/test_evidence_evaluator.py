@@ -27,6 +27,26 @@ def test_verifier_prompts_require_definitional_framing() -> None:
     assert "aggregate fruits" in verifier_prompts.EVIDENCE_EVALUATOR_SYSTEM_PROMPT.casefold()
 
 
+def test_evaluator_prompt_distinguishes_bracket_types() -> None:
+    prompt = verifier_prompts.EVIDENCE_EVALUATOR_SYSTEM_PROMPT.casefold()
+    assert "definitional" in prompt or "domain framework" in prompt
+    assert "geographic" in prompt or "temporal" in prompt or "jurisdictional" in prompt
+
+
+def test_evaluator_prompt_requires_semantic_scope_matching() -> None:
+    prompt = verifier_prompts.EVIDENCE_EVALUATOR_SYSTEM_PROMPT.casefold()
+    assert "semantically" in prompt or "semantic" in prompt
+    assert "literal" in prompt or "word overlap" in prompt
+
+
+def test_evaluator_prompt_handles_non_definitional_brackets() -> None:
+    prompt = verifier_prompts.EVIDENCE_EVALUATOR_SYSTEM_PROMPT
+    assert "in the United States" in prompt or "united states" in prompt.casefold()
+    assert "do not apply definitional-frame rules" in prompt.casefold() or (
+        "do not apply definitional" in prompt.casefold()
+    )
+
+
 def test_verifier_evaluator_prompt_includes_botanical_source_framing() -> None:
     state = VerifierState(
         claim_text=_BERRIES_CLAIM,
@@ -59,7 +79,7 @@ def test_verifier_query_prompt_includes_botanical_source_framing() -> None:
     assert _BERRIES_CLAIM in human_prompt
 
 
-async def test_evidence_evaluator_guardrail_downgrades_colloquial_refuted(monkeypatch) -> None:
+async def test_evidence_evaluator_passes_through_llm_verdict_without_guardrail(monkeypatch) -> None:
     async def fake_structured_call(*, llm, output_class, messages, context_desc=""):
         return EvaluationOutput(
             verdict="REFUTED",
@@ -89,9 +109,9 @@ async def test_evidence_evaluator_guardrail_downgrades_colloquial_refuted(monkey
         )
     )
 
-    assert result["claim_result"]["verdict"] == "CONFLICTING_EVIDENCE"
-    assert result["claim_result"]["confidence"] == 0.7
-    assert "verdict adjusted" in result["claim_result"]["reasoning"].casefold()
+    assert result["claim_result"]["verdict"] == "REFUTED"
+    assert result["claim_result"]["confidence"] == 1.0
+    assert result["claim_result"]["reasoning"] == "Popular sources say strawberries are berries."
 
 
 async def test_evidence_evaluator_maps_supported_output_to_claim_result(monkeypatch) -> None:

@@ -16,7 +16,7 @@ from factcheck.verifier.prompts import (
 )
 from factcheck.verifier.schemas import IntermediateAssessment, VerifierState
 from factcheck.verifier.utils import format_evidence
-from factcheck.verifier.utils.framing import adjust_verdict_for_framing, extract_evaluation_frame
+from factcheck.verifier.utils.framing import extract_evaluation_frame
 
 
 class EvaluationOutput(BaseModel):
@@ -137,20 +137,12 @@ async def evidence_evaluator_node(
             "iteration_count": state.iteration_count + 1,
         }
 
-    verdict, confidence, reasoning = adjust_verdict_for_framing(
-        claim_text=state.claim_text,
-        verdict=response.verdict,
-        confidence=response.confidence,
-        reasoning=response.reasoning,
-        evidence=state.evidence,
-    )
-
     return {
         "claim_result": _claim_result(
             state,
-            verdict=verdict,
-            confidence=confidence,
-            reasoning=reasoning,
+            verdict=response.verdict,
+            confidence=response.confidence,
+            reasoning=response.reasoning,
         ),
         "intermediate_assessment": intermediate,
     }
