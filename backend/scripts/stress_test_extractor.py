@@ -128,6 +128,23 @@ CASES: list[dict[str, object]] = [
         "expect": "Multiple claims; no mass fallback; morph/tense variants tolerated.",
         "checks": lambda claims: len(claims) >= 2,
     },
+    {
+        "id": "temporal_subordinate_trap",
+        "input": "The French Revolution began in 1815 after Napoleon's defeat.",
+        "expect": "Must cover revolution/1815; not only Napoleon's defeat.",
+        "checks": lambda claims: (
+            bool(claims)
+            and any(
+                "revolution" in c.claim_text.casefold() and "1815" in c.claim_text
+                for c in claims
+            )
+            and not (
+                len(claims) == 1
+                and "napoleon" in claims[0].claim_text.casefold()
+                and "revolution" not in claims[0].claim_text.casefold()
+            )
+        ),
+    },
 ]
 
 

@@ -156,6 +156,7 @@ Note the following rules:
 - "The pyramids were built by aliens" must produce only ["The pyramids were built by aliens"]. Do not produce claims saying humans, Egyptians, or ancient Egyptians built the pyramids.
 - "Drinking bleach cures COVID-19" must produce only ["Drinking bleach cures COVID-19"]. Do not produce claims saying bleach is harmful or vaccines prevent COVID-19.
 - When a sentence contains contrastive compounds joined by "but", "while", "whereas", or "however", extract each conjunct as a separate claim. Do not drop the positive conjunct just because another conjunct is negated.
+- When a sentence contains a temporal or causal subordinate clause introduced by "after", "before", "when", "because", or "since", extract separate claims for the main clause and the subordinate clause. Do not extract only the subordinate fact and drop the main assertion.
 - When sentence-level framing applies to the whole sentence (e.g., "according to botanical definitions", "under the legal definition of X"), copy that framing into square brackets on every extracted claim.
 
 Here are some correct examples that you must pay attention to:
@@ -180,6 +181,10 @@ Here are some correct examples that you must pay attention to:
 7. Context = "None", Sentence = "Bananas are berries, but strawberries are not, according to the botanical definitions of fruits."
     - MaxClarifiedSentence = Bananas are berries according to botanical definitions of fruits, and strawberries are not berries according to botanical definitions of fruits.
     - Specific, Verifiable, and Decontextualized Propositions: ["Bananas are berries [according to botanical definitions of fruits]", "Strawberries are not berries [according to botanical definitions of fruits]"]
+8. Context = "None", Sentence = "The French Revolution began in 1815 after Napoleon's defeat."
+    - MaxClarifiedSentence = The French Revolution began in 1815, and this was after Napoleon's defeat.
+    - Specific, Verifiable, and Decontextualized Propositions: ["The French Revolution began in 1815", "Napoleon was defeated"]
+    - Incorrect extraction: ["Napoleon was defeated"] — this drops the main assertion about when the French Revolution began.
 
 Put the step-by-step analysis inside the reasoning field. Do not write any analysis outside the JSON object. The reasoning should cover:
 1. Referential terms in the sentence and how their meanings are clarified.

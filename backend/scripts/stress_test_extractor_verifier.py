@@ -48,6 +48,12 @@ CASES = [
         "input": "Drinking bleach cures COVID-19.",
         "note": "Preserves dangerous false claim through extractor and verifier.",
     },
+    {
+        "id": "french_revolution_1815",
+        "input": "The French Revolution began in 1815 after Napoleon's defeat.",
+        "note": "Incomplete decomposition must not yield only SUPPORTED Napoleon defeat.",
+        "expect_refuted": True,
+    },
 ]
 
 VALID_VERDICTS = frozenset(
@@ -101,8 +107,12 @@ async def main() -> int:
             print("  (no claims produced)")
             continue
 
+        case_verdicts: list[str] = []
+        case_claim_texts: list[str] = []
+
         for index, claim in enumerate(claims, 1):
             total_claims += 1
+            case_claim_texts.append(claim.claim_text)
             print(f"\n  --- claim {index}/{len(claims)} ---")
             print(f"  extractor fidelity: {claim.fidelity_status!r}")
             print(f"  claim_text: {claim.claim_text}")
@@ -114,6 +124,7 @@ async def main() -> int:
                 verify_elapsed = time.perf_counter() - verify_start
 
                 verdict = result.get("verdict")
+                case_verdicts.append(str(verdict))
                 fidelity_out = result.get("fidelity_status")
                 ok = (
                     verdict in VALID_VERDICTS
@@ -137,6 +148,26 @@ async def main() -> int:
                 errors += 1
                 verify_elapsed = time.perf_counter() - verify_start
                 print(f"  VERIFIER ERROR ({verify_elapsed:.1f}s): {exc}")
+
+        if case.get("expect_refuted"):
+            core_claims = [
+                (text, verdict)
+                for text, verdict in zip(case_claim_texts, case_verdicts, strict=False)
+                if "revolution" in text.casefold() or "1815" in text
+            ]
+            if not core_claims:
+                core_claims = list(zip(case_claim_texts, case_verdicts, strict=False))
+            if not any(verdict == "REFUTED" for _, verdict in core_claims):
+                errors += 1
+                print("  CASE EXPECTATION FAILED: expected REFUTED for revolution/1815 claim")
+            elif (
+                len(claims) == 1
+                and "napoleon" in claims[0].claim_text.casefold()
+                and "revolution" not in claims[0].claim_text.casefold()
+                and case_verdicts == ["SUPPORTED"]
+            ):
+                errors += 1
+                print("  CASE EXPECTATION FAILED: only Napoleon's defeat was checked as SUPPORTED")
 
     print(f"\n{'=' * 72}")
     print(

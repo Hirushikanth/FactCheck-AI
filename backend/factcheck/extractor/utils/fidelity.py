@@ -16,6 +16,22 @@ class FidelityDecision(str, Enum):
     BORDERLINE = "borderline"
 
 
+class CoverageDecision(str, Enum):
+    """Whether decomposed claims collectively cover the source assertion."""
+
+    COMPLETE = "complete"
+    INCOMPLETE = "incomplete"
+
+
+@dataclass(frozen=True)
+class CoverageAssessment:
+    """Result of checking claim-group coverage against a source sentence."""
+
+    decision: CoverageDecision
+    uncovered_segments: tuple[str, ...] = ()
+    reason: str = ""
+
+
 @dataclass(frozen=True)
 class FidelityAssessment:
     """Result of comparing an extracted claim against its source assertion."""
@@ -98,6 +114,39 @@ _STOPWORDS = {
 }
 
 _NEGATIONS = {"no", "not", "never", "none", "without"}
+
+_SUBORDINATOR_RE = re.compile(
+    r"\b(after|before|when|while|because|since|although|though)\b",
+    re.IGNORECASE,
+)
+_CONTRASTIVE_SPLITS = (", but ", ", whereas ", "; however, ", ", however, ")
+_FINITE_VERB_HINTS = {
+    "am",
+    "are",
+    "be",
+    "been",
+    "being",
+    "built",
+    "can",
+    "could",
+    "designed",
+    "did",
+    "do",
+    "does",
+    "had",
+    "has",
+    "have",
+    "highlights",
+    "is",
+    "may",
+    "might",
+    "must",
+    "was",
+    "were",
+    "will",
+    "would",
+    "wrote",
+}
 
 _WORDNET_RESOURCES = ("wordnet", "omw-1.4")
 
@@ -281,4 +330,120 @@ def assess_claim_fidelity(
         decision=FidelityDecision.FAIL,
         extra_terms=extra_terms,
         reason="Extracted claim introduces terms not present in the source assertion.",
+    )
+
+
+def _claim_union_forms(claim_texts: list[str]) -> set[str]:
+    forms: set[str] = set()
+    for text in claim_texts:
+        forms |= _morphological_forms_union(text)
+        forms |= _morphological_forms_union(_bracketed_context(text))
+    return forms
+
+
+def _segment_has_overlap(segment: str, claim_forms: set[str]) -> bool:
+    terms = _content_tokens(segment)
+    if not terms:
+        return True
+    return any(_token_covered(token, claim_forms) for token in terms)
+
+
+def _segment_has_finite_verb(segment: str) -> bool:
+    tokens = [_normalize_token(token) for token in _TOKEN_RE.findall(segment)]
+    if len(tokens) < 2:
+        return False
+    return any(
+        token in _FINITE_VERB_HINTS or token.endswith(("ed", "s"))
+        for token in tokens[1:]
+    )
+
+
+def _split_subordinate(sentence: str) -> tuple[str, str] | None:
+    match = _SUBORDINATOR_RE.search(sentence)
+    if not match:
+        return None
+    main = sentence[: match.start()].strip().rstrip(",")
+    subordinate = sentence[match.end() :].strip()
+    if main and subordinate:
+        return main, subordinate
+    return None
+
+
+def _split_contrastive(sentence: str) -> list[str] | None:
+    lowered = sentence.casefold()
+    for separator in _CONTRASTIVE_SPLITS:
+        index = lowered.find(separator.casefold())
+        if index == -1:
+            continue
+        parts = [
+            sentence[:index].strip(),
+            sentence[index + len(separator) :].strip(),
+        ]
+        if all(parts):
+            return parts
+    return None
+
+
+def _split_coordinated_and(sentence: str) -> list[str] | None:
+    parts = re.split(r"\s+and\s+", sentence, maxsplit=1, flags=re.IGNORECASE)
+    if len(parts) != 2:
+        return None
+    left, right = (part.strip() for part in parts)
+    if not left or not right:
+        return None
+    if _segment_has_finite_verb(left) and _segment_has_finite_verb(right):
+        return [left, right]
+    return None
+
+
+def _coverage_segments(source_sentence: str) -> tuple[str, ...] | None:
+    subordinate = _split_subordinate(source_sentence)
+    if subordinate:
+        return subordinate
+
+    contrastive = _split_contrastive(source_sentence)
+    if contrastive:
+        return tuple(contrastive)
+
+    coordinated = _split_coordinated_and(source_sentence)
+    if coordinated:
+        return tuple(coordinated)
+
+    return None
+
+
+def assess_group_coverage(
+    *,
+    source_sentence: str,
+    claim_texts: list[str],
+) -> CoverageAssessment:
+    """Check whether extracted claims collectively cover each source clause."""
+
+    if not claim_texts:
+        return CoverageAssessment(
+            decision=CoverageDecision.INCOMPLETE,
+            reason="No extracted claims to assess for coverage.",
+        )
+
+    segments = _coverage_segments(source_sentence)
+    if segments is None:
+        return CoverageAssessment(
+            decision=CoverageDecision.COMPLETE,
+            reason="No compound pattern matched.",
+        )
+
+    claim_forms = _claim_union_forms(claim_texts)
+    uncovered = tuple(
+        segment for segment in segments if not _segment_has_overlap(segment, claim_forms)
+    )
+    if uncovered:
+        return CoverageAssessment(
+            decision=CoverageDecision.INCOMPLETE,
+            uncovered_segments=uncovered,
+            reason="Claims do not cover all source clause segments.",
+        )
+
+    return CoverageAssessment(
+        decision=CoverageDecision.COMPLETE,
+        reason="Claims cover all source clause segments.",
     )
