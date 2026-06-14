@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+
 from pydantic import BaseModel
 
 from factcheck.extractor.utils.text import remove_following_sentences
@@ -123,6 +125,70 @@ async def test_process_with_voting_requires_minimum_successes() -> None:
     )
 
     assert results == ["sentence:first"]
+
+
+async def test_process_with_voting_stops_early_at_min_successes() -> None:
+    call_count = 0
+
+    async def processor(item, llm):
+        nonlocal call_count
+        call_count += 1
+        return True, f"value-{call_count}"
+
+    results = await process_with_voting(
+        items=["sentence"],
+        processor=processor,
+        llm=object(),
+        completions=3,
+        min_successes=2,
+        result_factory=lambda value, item: f"{item}:{value}",
+    )
+
+    assert results == ["sentence:value-1"]
+    assert call_count == 2
+
+
+async def test_process_with_voting_parallelizes_items() -> None:
+    gate = asyncio.Event()
+    in_flight = 0
+    max_in_flight = 0
+    lock = asyncio.Lock()
+
+    async def processor(item, llm):
+        nonlocal in_flight, max_in_flight
+        async with lock:
+            in_flight += 1
+            max_in_flight = max(max_in_flight, in_flight)
+        await gate.wait()
+        async with lock:
+            in_flight -= 1
+        return True, item
+
+    task = asyncio.create_task(
+        process_with_voting(
+            items=["a", "b", "c"],
+            processor=processor,
+            llm=object(),
+            completions=1,
+            min_successes=1,
+            result_factory=lambda value, item: value,
+        )
+    )
+
+    for _ in range(50):
+        await asyncio.sleep(0)
+        if max_in_flight >= 2:
+            break
+    else:
+        gate.set()
+        await task
+        raise AssertionError("expected multiple items to run concurrently")
+
+    gate.set()
+    results = await task
+
+    assert sorted(results) == ["a", "b", "c"]
+    assert max_in_flight >= 2
 
 
 async def test_structured_llm_helper_returns_parsed_model() -> None:

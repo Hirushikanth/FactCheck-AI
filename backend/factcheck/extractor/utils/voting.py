@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import Awaitable, Callable, Sequence
 from typing import TypeVar
@@ -17,6 +18,37 @@ Processor = Callable[[T, object], Awaitable[tuple[bool, R | None]]]
 ResultFactory = Callable[[R, T], ResultT | None]
 
 
+async def _vote_single_item(
+    *,
+    item: T,
+    processor: Processor[T, R],
+    llm: object,
+    completions: int,
+    min_successes: int,
+    result_factory: ResultFactory[R, ResultT],
+) -> ResultT | None:
+    """Run repeated attempts for one item and return a result if the threshold is met.
+
+    Attempts stop early once ``min_successes`` is reached.  GPU safety is
+    enforced by :func:`factcheck.llm.concurrency.get_ollama_semaphore` inside
+    each processor call, not by serialising attempts here.
+    """
+    successes: list[R] = []
+    for _ in range(completions):
+        success, value = await processor(item, llm)
+        if success and value is not None:
+            successes.append(value)
+            if len(successes) >= min_successes:
+                break
+
+    if len(successes) < min_successes:
+        logger.info("Voting rejected item with %s/%s successes", len(successes), completions)
+        return None
+
+    processed = result_factory(successes[0], item)
+    return processed
+
+
 async def process_with_voting(
     *,
     items: Sequence[T],
@@ -28,33 +60,24 @@ async def process_with_voting(
 ) -> list[ResultT]:
     """Run repeated attempts per item and keep items meeting the success threshold.
 
-    Voting attempts for the *same* item are executed **sequentially** rather
-    than with ``asyncio.gather``.  Concurrent attempts would hammer a local
-    Ollama instance with ``completions`` simultaneous requests for every single
-    sentence, causing VRAM thrashing or OOM crashes.  Sequential execution is
-    safe because the votes are independent of each other and the result is
-    identical — only the wall-clock time per item increases slightly, which is
-    acceptable given the hardware constraints.
+    Items are scheduled concurrently via ``asyncio.gather``.  The global
+    Ollama semaphore in :func:`factcheck.llm.concurrency.get_ollama_semaphore`
+    caps simultaneous in-flight requests, so this does not overload local
+    hardware.  Within each item, attempts stop early once ``min_successes``
+    is reached (e.g. ``completions=3`` with ``min_successes=2`` may issue
+    only two calls on the happy path).
     """
-    results: list[ResultT] = []
-    for item in items:
-        # Run each voting attempt one at a time to stay within the local GPU's
-        # capacity.  The semaphore in factcheck.llm.concurrency enforces the
-        # global limit; this loop removes the extra concurrency pressure at the
-        # call-site level.
-        attempts: list[tuple[bool, R | None]] = []
-        for _ in range(completions):
-            attempt = await processor(item, llm)
-            attempts.append(attempt)
-
-        successes = [(success, value) for success, value in attempts if success and value is not None]
-        if len(successes) < min_successes:
-            logger.info("Voting rejected item with %s/%s successes", len(successes), completions)
-            continue
-
-        value = successes[0][1]
-        processed = result_factory(value, item)
-        if processed is not None:
-            results.append(processed)
-
-    return results
+    gathered = await asyncio.gather(
+        *(
+            _vote_single_item(
+                item=item,
+                processor=processor,
+                llm=llm,
+                completions=completions,
+                min_successes=min_successes,
+                result_factory=result_factory,
+            )
+            for item in items
+        )
+    )
+    return [result for result in gathered if result is not None]
