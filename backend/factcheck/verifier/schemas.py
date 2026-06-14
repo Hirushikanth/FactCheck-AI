@@ -50,6 +50,7 @@ class VerifierState(BaseModel):
     raw_hits: list[SearchHit] = Field(default_factory=list)
     ranked_evidence: list[EvidenceItem] = Field(default_factory=list)
     claim_result: ClaimResult | None = None
+    search_exhausted: bool = False
 
     @model_validator(mode="after")
     def _default_source_sentence(self) -> VerifierState:

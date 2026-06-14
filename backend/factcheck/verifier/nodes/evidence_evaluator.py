@@ -125,7 +125,8 @@ async def evidence_evaluator_node(
         missing_aspects=response.missing_aspects,
     )
     should_retry = (
-        response.verdict == "INSUFFICIENT_EVIDENCE"
+        not state.search_exhausted
+        and response.verdict == "INSUFFICIENT_EVIDENCE"
         and response.needs_more_evidence
         and state.iteration_count + 1 < state.max_iterations
     )

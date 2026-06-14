@@ -61,7 +61,25 @@ def _keyword_query(text: str) -> str:
     return " ".join(tokens)
 
 
-def _clean_query(queries: list[str], claim: str, previous_queries: list[str]) -> str | None:
+def _aspect_fallback_queries(
+    normalized_claim: str,
+    missing_aspects: list[str] | None,
+) -> list[str]:
+    candidates: list[str] = []
+    for aspect in missing_aspects or []:
+        aspect_kw = _keyword_query(aspect)
+        if aspect_kw:
+            candidates.append(f"{aspect_kw} {normalized_claim}".strip())
+            candidates.append(aspect_kw)
+    return candidates
+
+
+def _clean_query(
+    queries: list[str],
+    claim: str,
+    previous_queries: list[str],
+    missing_aspects: list[str] | None = None,
+) -> str | None:
     cleaned: list[str] = []
     seen: set[str] = {query.casefold() for query in previous_queries}
     normalized_claim = " ".join(claim.strip().rstrip(".?!").split())
@@ -75,11 +93,13 @@ def _clean_query(queries: list[str], claim: str, previous_queries: list[str]) ->
         if len(cleaned) >= QUERIES_PER_ITERATION:
             break
 
-    for expanded in (
+    fallback_candidates = [
         _keyword_query(normalized_claim),
         f"{normalized_claim} fact check".strip(),
         normalized_claim or claim,
-    ):
+        *_aspect_fallback_queries(normalized_claim, missing_aspects),
+    ]
+    for expanded in fallback_candidates:
         if not cleaned:
             key = expanded.casefold()
             if expanded and key not in seen:
@@ -127,7 +147,9 @@ def _query_messages(state: VerifierState) -> list[tuple[str, str]]:
     ]
 
 
-async def query_generator_node(state: VerifierState) -> dict[str, str | list[str] | None]:
+async def query_generator_node(
+    state: VerifierState,
+) -> dict[str, str | list[str] | bool | None]:
     """Generate targeted search queries for one claim."""
 
     if state.claim_result is not None:
@@ -141,11 +163,18 @@ async def query_generator_node(state: VerifierState) -> dict[str, str | list[str
         context_desc=f"query generation for '{state.claim_text}'",
     )
 
-    query = _clean_query(response.queries if response else [], state.claim_text, state.all_queries)
+    missing_aspects = _iterative_missing_aspects(state) if state.iteration_count > 0 else None
+    query = _clean_query(
+        response.queries if response else [],
+        state.claim_text,
+        state.all_queries,
+        missing_aspects=missing_aspects,
+    )
     if query is None:
-        return {"current_query": None}
+        return {"current_query": None, "search_exhausted": True}
 
     return {
         "current_query": query,
         "all_queries": state.all_queries + [query],
+        "search_exhausted": False,
     }

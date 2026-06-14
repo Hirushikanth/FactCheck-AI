@@ -169,6 +169,35 @@ async def test_evidence_evaluator_requests_retry_without_claim_result(monkeypatc
     ]
 
 
+async def test_evidence_evaluator_finalizes_when_search_exhausted(monkeypatch) -> None:
+    async def fake_structured_call(*, llm, output_class, messages, context_desc=""):
+        return EvaluationOutput(
+            verdict="INSUFFICIENT_EVIDENCE",
+            confidence=0.3,
+            reasoning="More evidence would help, but no new search query is available.",
+            needs_more_evidence=True,
+            missing_aspects=["another source"],
+            influential_sources=[],
+        )
+
+    monkeypatch.setattr(evidence_evaluator, "get_verifier_llm", lambda **kwargs: object())
+    monkeypatch.setattr(evidence_evaluator, "call_llm_with_structured_output", fake_structured_call)
+
+    result = await evidence_evaluator_node(
+        VerifierState(
+            claim_text="A precise statistical claim.",
+            evidence=[EvidenceItem(url="https://example.com", snippet="Related but vague.")],
+            iteration_count=1,
+            max_iterations=3,
+            search_exhausted=True,
+        )
+    )
+
+    assert result["claim_result"]["verdict"] == "INSUFFICIENT_EVIDENCE"
+    assert result["claim_result"]["confidence"] == 0.3
+    assert "iteration_count" not in result
+
+
 async def test_evidence_evaluator_finalizes_when_retry_requested_at_max_iterations(
     monkeypatch,
 ) -> None:

@@ -11,9 +11,9 @@ from factcheck.verifier.schemas import VerifierState
 
 
 def route_after_query(state: VerifierState) -> str:
-    """Route to retrieval only when query generation produced a query."""
+    """Route to retrieval when a query exists, otherwise evaluate existing evidence."""
 
-    return "retriever" if state.current_query else END
+    return "retriever" if state.current_query else "evidence_evaluator"
 
 
 def route_after_evaluate(state: VerifierState) -> str:
@@ -44,7 +44,7 @@ def build_verifier_graph():
     graph.add_conditional_edges(
         "query_generator",
         route_after_query,
-        {"retriever": "retriever", END: END},
+        {"retriever": "retriever", "evidence_evaluator": "evidence_evaluator"},
     )
     graph.add_edge("retriever", "evidence_evaluator")
     graph.add_conditional_edges(
