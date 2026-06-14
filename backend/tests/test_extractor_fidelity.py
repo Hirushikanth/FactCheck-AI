@@ -64,6 +64,24 @@ def test_programmatic_fidelity_preserves_dangerous_false_claims() -> None:
     assert result.decision == FidelityDecision.PASS
 
 
+def test_programmatic_fidelity_allows_tense_normalization() -> None:
+    result = assess_claim_fidelity(
+        claim_text="Jane runs the firm.",
+        source_sentence="Jane was running the firm.",
+    )
+
+    assert result.decision == FidelityDecision.PASS
+
+
+def test_programmatic_fidelity_allows_plural_to_singular_normalization() -> None:
+    result = assess_claim_fidelity(
+        claim_text="The pyramid was built by aliens.",
+        source_sentence="The pyramids were built by aliens.",
+    )
+
+    assert result.decision == FidelityDecision.PASS
+
+
 _BERRIES_SOURCE = (
     "Bananas are berries, but strawberries are not, "
     "according to the botanical definitions of fruits."
