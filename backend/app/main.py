@@ -5,7 +5,7 @@ from __future__ import annotations
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.routers import dev_stream
+from app.routers import dev_stream, dialogue
 from factcheck.config import AppSettings, get_settings
 from factcheck.llm.ollama import check_ollama_health
 
@@ -19,6 +19,8 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
 
     resolved_settings = settings or get_settings()
     app = FastAPI(title="FactCheck AI", version="0.1.0")
+
+    app.include_router(dialogue.router)
 
     if resolved_settings.dev_stream_enabled:
         app.add_middleware(
