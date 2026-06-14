@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 # Module-level segmenter — pysbd.Segmenter is stateless and cheap to create,
 # but there is no reason to rebuild it on every call.
 _segmenter = pysbd.Segmenter(language="en", clean=False)
-_KNOWN_ABBREVIATION_BOUNDARY_RE = re.compile(r"\b(D\.C\.)\s+(?=[A-Z][a-z])")
+_KNOWN_ABBREVIATION_BOUNDARY_RE = re.compile(r"\b(D\.C\.)\s+(?=[A-Z0-9])")
 
 
 def _split_known_sentence_final_abbreviations(sentence: str) -> list[str]:

@@ -166,3 +166,23 @@ async def test_pysbd_sentence_splitting_handles_washington_dc() -> None:
         "Dr. Smith works at OpenAI Inc. in Washington D.C.",
         "He joined in 2024.",
     ]
+
+
+async def test_pysbd_sentence_splitting_handles_washington_dc_before_acronym() -> None:
+    text = "Dr. Smith works at OpenAI Inc. in Washington D.C. USA citizens voted in November."
+    items = await _sentence_splitter_and_context_creator(text, p_sentences=0, f_sentences=0)
+
+    assert [item.original_sentence for item in items] == [
+        "Dr. Smith works at OpenAI Inc. in Washington D.C.",
+        "USA citizens voted in November.",
+    ]
+
+
+async def test_pysbd_sentence_splitting_handles_washington_dc_before_year() -> None:
+    text = "Dr. Smith works at OpenAI Inc. in Washington D.C. 2026 was a turning point for policy."
+    items = await _sentence_splitter_and_context_creator(text, p_sentences=0, f_sentences=0)
+
+    assert [item.original_sentence for item in items] == [
+        "Dr. Smith works at OpenAI Inc. in Washington D.C.",
+        "2026 was a turning point for policy.",
+    ]
