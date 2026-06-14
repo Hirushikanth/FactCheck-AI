@@ -8,7 +8,7 @@ from factcheck.verifier.nodes.evidence_evaluator import (
     evidence_evaluator_node,
 )
 from factcheck.verifier.nodes.query_generator import _query_messages
-from factcheck.verifier.schemas import EvidenceItem, VerifierState
+from factcheck.verifier.schemas import CachedEvaluation, EvidenceItem, VerifierState
 
 
 _BERRIES_SOURCE = (
@@ -322,3 +322,85 @@ async def test_evidence_evaluator_falls_back_when_structured_output_fails(monkey
     assert result["claim_result"]["verdict"] == "INSUFFICIENT_EVIDENCE"
     assert result["claim_result"]["confidence"] == 0.0
     assert result["intermediate_assessment"].needs_more_evidence is False
+
+
+async def test_evidence_evaluator_caches_successful_retry_assessment(monkeypatch) -> None:
+    async def fake_structured_call(*, llm, output_class, messages, context_desc=""):
+        return EvaluationOutput(
+            verdict="INSUFFICIENT_EVIDENCE",
+            confidence=0.2,
+            reasoning="The evidence does not address the exact figure.",
+            needs_more_evidence=True,
+            missing_aspects=["official source for the exact figure"],
+            influential_sources=[1],
+        )
+
+    monkeypatch.setattr(evidence_evaluator, "get_verifier_llm", lambda **kwargs: object())
+    monkeypatch.setattr(evidence_evaluator, "call_llm_with_structured_output", fake_structured_call)
+
+    evidence = [
+        EvidenceItem(url="https://example.com", snippet="Related but vague."),
+    ]
+
+    result = await evidence_evaluator_node(
+        VerifierState(
+            claim_text="A precise statistical claim.",
+            evidence=evidence,
+            iteration_count=1,
+            max_iterations=3,
+        )
+    )
+
+    assert result["cached_evaluation"] == CachedEvaluation(
+        verdict="INSUFFICIENT_EVIDENCE",
+        confidence=0.2,
+        reasoning="The evidence does not address the exact figure.",
+        needs_more_evidence=True,
+        missing_aspects=["official source for the exact figure"],
+        influential_sources=[1],
+    )
+
+
+async def test_evidence_evaluator_falls_back_to_cached_evaluation(monkeypatch) -> None:
+    async def fake_structured_call(*, llm, output_class, messages, context_desc=""):
+        return None
+
+    monkeypatch.setattr(evidence_evaluator, "get_verifier_llm", lambda **kwargs: object())
+    monkeypatch.setattr(evidence_evaluator, "call_llm_with_structured_output", fake_structured_call)
+
+    cached = CachedEvaluation(
+        verdict="INSUFFICIENT_EVIDENCE",
+        confidence=0.2,
+        reasoning="Three sources support partial context but lack the required document.",
+        needs_more_evidence=True,
+        missing_aspects=["official source for the exact figure"],
+        influential_sources=[1, 2],
+    )
+
+    evidence = [
+        EvidenceItem(url="https://first.example", snippet="First source."),
+        EvidenceItem(url="https://second.example", snippet="Second source."),
+    ]
+
+    result = await evidence_evaluator_node(
+        VerifierState(
+            claim_text="A precise statistical claim.",
+            evidence=evidence,
+            iteration_count=2,
+            max_iterations=3,
+            cached_evaluation=cached,
+        )
+    )
+
+    assert result["claim_result"]["verdict"] == "INSUFFICIENT_EVIDENCE"
+    assert result["claim_result"]["confidence"] == 0.2
+    assert (
+        result["claim_result"]["reasoning"]
+        == "Three sources support partial context but lack the required document."
+    )
+    assert result["intermediate_assessment"].needs_more_evidence is False
+    assert result["intermediate_assessment"].missing_aspects == [
+        "official source for the exact figure"
+    ]
+    assert evidence[0].is_influential is True
+    assert evidence[1].is_influential is True

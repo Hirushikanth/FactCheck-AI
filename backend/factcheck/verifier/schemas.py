@@ -8,7 +8,7 @@ from typing import Annotated
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from factcheck.search.models import SearchHit
-from factcheck.state import ClaimResult
+from factcheck.state import ClaimResult, Verdict
 from factcheck.verifier.config import MAX_EVIDENCE_TOKENS, MAX_ITERATIONS
 
 
@@ -27,6 +27,17 @@ class IntermediateAssessment(BaseModel):
 
     needs_more_evidence: bool = False
     missing_aspects: list[str] = Field(default_factory=list)
+
+
+class CachedEvaluation(BaseModel):
+    """Last successful evaluator output, retained across iterations for fallback."""
+
+    verdict: Verdict
+    confidence: float = Field(ge=0.0, le=1.0)
+    reasoning: str
+    needs_more_evidence: bool = False
+    missing_aspects: list[str] = Field(default_factory=list)
+    influential_sources: list[int] = Field(default_factory=list)
 
 
 class VerifierState(BaseModel):
@@ -50,6 +61,7 @@ class VerifierState(BaseModel):
     raw_hits: list[SearchHit] = Field(default_factory=list)
     ranked_evidence: list[EvidenceItem] = Field(default_factory=list)
     claim_result: ClaimResult | None = None
+    cached_evaluation: CachedEvaluation | None = None
     search_exhausted: bool = False
 
     @model_validator(mode="after")
