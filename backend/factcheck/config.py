@@ -30,6 +30,7 @@ class AppSettings(BaseSettings):
     serper_api_key: str | None = None
     dev_stream_enabled: bool = False
     dev_cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173,http://localhost:8080"
+    sqlite_path: str = "factcheck_ai.db"
     debug: bool = False
 
     model_config = SettingsConfigDict(

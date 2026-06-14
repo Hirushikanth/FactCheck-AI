@@ -14,16 +14,46 @@ from factcheck.dialogue.schemas import ConversationSummary, DialogueOutput, Dial
 DEFAULT_DB_PATH = BACKEND_DIR / "factcheck_ai.db"
 
 
-def _get_connection(db_path: Path | str = DEFAULT_DB_PATH) -> sqlite3.Connection:
-    conn = sqlite3.connect(str(db_path))
+def get_sqlite_path() -> Path:
+    """Return the configured SQLite database path."""
+    from factcheck.config import get_settings
+
+    settings = get_settings()
+    configured = Path(settings.sqlite_path)
+    if configured.is_absolute():
+        return configured
+    return BACKEND_DIR / configured
+
+
+def _resolve_db_path(db_path: Path | str | None) -> Path | str:
+    return db_path if db_path is not None else get_sqlite_path()
+
+
+def _get_connection(db_path: Path | str | None = None) -> sqlite3.Connection:
+    conn = sqlite3.connect(str(_resolve_db_path(db_path)))
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     return conn
 
 
-def ensure_dialogue_tables(db_path: Path | str = DEFAULT_DB_PATH) -> None:
+def _migrate_session_columns(conn: sqlite3.Connection) -> None:
+    """Add Phase 6 status/error columns to existing databases."""
+    columns = {
+        row["name"]
+        for row in conn.execute("PRAGMA table_info(fact_check_sessions)").fetchall()
+    }
+    if "status" not in columns:
+        conn.execute(
+            "ALTER TABLE fact_check_sessions ADD COLUMN status TEXT NOT NULL DEFAULT 'done'"
+        )
+    if "error" not in columns:
+        conn.execute("ALTER TABLE fact_check_sessions ADD COLUMN error TEXT")
+
+
+def ensure_dialogue_tables(db_path: Path | str | None = None) -> None:
     """Create dialogue and session tables if they do not exist."""
-    with _get_connection(db_path) as conn:
+    resolved = _resolve_db_path(db_path)
+    with _get_connection(resolved) as conn:
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS fact_check_sessions (
@@ -31,11 +61,14 @@ def ensure_dialogue_tables(db_path: Path | str = DEFAULT_DB_PATH) -> None:
                 raw_input        TEXT NOT NULL,
                 claim_results_json TEXT NOT NULL DEFAULT '[]',
                 final_report     TEXT,
+                status           TEXT NOT NULL DEFAULT 'running',
+                error            TEXT,
                 created_at       REAL NOT NULL,
                 updated_at       REAL NOT NULL
             )
             """
         )
+        _migrate_session_columns(conn)
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS dialogue_history (
@@ -77,9 +110,134 @@ def ensure_dialogue_tables(db_path: Path | str = DEFAULT_DB_PATH) -> None:
         )
 
 
-def session_exists(session_id: str, db_path: Path | str = DEFAULT_DB_PATH) -> bool:
-    ensure_dialogue_tables(db_path)
-    with _get_connection(db_path) as conn:
+def create_session(
+    session_id: str,
+    raw_input: str,
+    db_path: Path | str | None = None,
+) -> None:
+    """Insert a new session with status='running'."""
+    resolved = _resolve_db_path(db_path)
+    ensure_dialogue_tables(resolved)
+    now = time.time()
+    with _get_connection(resolved) as conn:
+        conn.execute(
+            """
+            INSERT INTO fact_check_sessions
+              (session_id, raw_input, claim_results_json, final_report, status, error,
+               created_at, updated_at)
+            VALUES (?, ?, '[]', NULL, 'running', NULL, ?, ?)
+            """,
+            (session_id, raw_input, now, now),
+        )
+
+
+def update_session_status(
+    session_id: str,
+    status: str,
+    *,
+    error: str | None = None,
+    db_path: Path | str | None = None,
+) -> None:
+    """Update session lifecycle status."""
+    resolved = _resolve_db_path(db_path)
+    ensure_dialogue_tables(resolved)
+    now = time.time()
+    with _get_connection(resolved) as conn:
+        conn.execute(
+            """
+            UPDATE fact_check_sessions
+            SET status = ?, error = ?, updated_at = ?
+            WHERE session_id = ?
+            """,
+            (status, error, now, session_id),
+        )
+
+
+def get_session(
+    session_id: str,
+    db_path: Path | str | None = None,
+) -> dict[str, Any] | None:
+    """Return session row with parsed claim results and dialogue messages."""
+    resolved = _resolve_db_path(db_path)
+    ensure_dialogue_tables(resolved)
+    with _get_connection(resolved) as conn:
+        row = conn.execute(
+            "SELECT * FROM fact_check_sessions WHERE session_id = ?",
+            (session_id,),
+        ).fetchone()
+        if row is None:
+            return None
+
+        message_rows = conn.execute(
+            """
+            SELECT role, content, timestamp AS created_at
+            FROM dialogue_history
+            WHERE session_id = ?
+            ORDER BY timestamp ASC
+            """,
+            (session_id,),
+        ).fetchall()
+
+    session = dict(row)
+    session["claim_results"] = json.loads(session.pop("claim_results_json"))
+    session["messages"] = [dict(message) for message in message_rows]
+    return session
+
+
+def list_sessions(db_path: Path | str | None = None) -> list[dict[str, Any]]:
+    """Return session summaries ordered by newest first."""
+    resolved = _resolve_db_path(db_path)
+    ensure_dialogue_tables(resolved)
+    with _get_connection(resolved) as conn:
+        rows = conn.execute(
+            """
+            SELECT session_id, raw_input, status, created_at, updated_at
+            FROM fact_check_sessions
+            ORDER BY created_at DESC
+            """
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def delete_session(session_id: str, db_path: Path | str | None = None) -> bool:
+    """Delete a session and all related dialogue rows."""
+    resolved = _resolve_db_path(db_path)
+    ensure_dialogue_tables(resolved)
+    with _get_connection(resolved) as conn:
+        for table in (
+            "dialogue_history",
+            "dialogue_summaries",
+            "dialogue_fc_context",
+            "fact_check_sessions",
+        ):
+            conn.execute(f"DELETE FROM {table} WHERE session_id = ?", (session_id,))
+        deleted = conn.total_changes > 0
+    return deleted
+
+
+def save_user_message(
+    session_id: str,
+    content: str,
+    db_path: Path | str | None = None,
+) -> None:
+    """Persist a user message before a dialogue turn runs."""
+    resolved = _resolve_db_path(db_path)
+    ensure_dialogue_tables(resolved)
+    with _get_connection(resolved) as conn:
+        conn.execute(
+            """
+            INSERT INTO dialogue_history
+              (session_id, role, content, timestamp, intent, token_estimate)
+            VALUES (?, 'user', ?, ?, NULL, 0)
+            """,
+            (session_id, content, time.time()),
+        )
+
+
+def session_exists(session_id: str, db_path: Path | str | None = None) -> bool:
+    resolved = _resolve_db_path(db_path)
+    ensure_dialogue_tables(resolved)
+    with _get_connection(resolved) as conn:
         row = conn.execute(
             "SELECT 1 FROM fact_check_sessions WHERE session_id = ?",
             (session_id,),
@@ -93,21 +251,25 @@ def save_factcheck_session(
     raw_input: str,
     claim_results: list[dict[str, Any]],
     final_report: str | None,
-    db_path: Path | str = DEFAULT_DB_PATH,
+    db_path: Path | str | None = None,
 ) -> None:
     """Create or update a completed fact-check session snapshot."""
-    ensure_dialogue_tables(db_path)
+    resolved = _resolve_db_path(db_path)
+    ensure_dialogue_tables(resolved)
     now = time.time()
-    with _get_connection(db_path) as conn:
+    with _get_connection(resolved) as conn:
         conn.execute(
             """
             INSERT INTO fact_check_sessions
-              (session_id, raw_input, claim_results_json, final_report, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?)
+              (session_id, raw_input, claim_results_json, final_report, status, error,
+               created_at, updated_at)
+            VALUES (?, ?, ?, ?, 'done', NULL, ?, ?)
             ON CONFLICT(session_id) DO UPDATE SET
               raw_input = excluded.raw_input,
               claim_results_json = excluded.claim_results_json,
               final_report = excluded.final_report,
+              status = 'done',
+              error = NULL,
               updated_at = excluded.updated_at
             """,
             (
@@ -123,11 +285,12 @@ def save_factcheck_session(
 
 def load_session_for_dialogue(
     session_id: str,
-    db_path: Path | str = DEFAULT_DB_PATH,
+    db_path: Path | str | None = None,
 ) -> dict[str, Any]:
     """Load fact-check snapshot and dialogue state for a session."""
-    ensure_dialogue_tables(db_path)
-    with _get_connection(db_path) as conn:
+    resolved = _resolve_db_path(db_path)
+    ensure_dialogue_tables(resolved)
+    with _get_connection(resolved) as conn:
         fc_row = conn.execute(
             "SELECT * FROM fact_check_sessions WHERE session_id = ?",
             (session_id,),
@@ -186,13 +349,14 @@ def persist_dialogue_state(
     result: DialogueOutput,
     *,
     prior_history_len: int,
-    db_path: Path | str = DEFAULT_DB_PATH,
+    db_path: Path | str | None = None,
 ) -> None:
     """Persist dialogue deltas after one turn."""
-    ensure_dialogue_tables(db_path)
+    resolved = _resolve_db_path(db_path)
+    ensure_dialogue_tables(resolved)
     new_turns = result["dialogue_history"][prior_history_len:]
 
-    with _get_connection(db_path) as conn:
+    with _get_connection(resolved) as conn:
         for turn in new_turns:
             conn.execute(
                 """

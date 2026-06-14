@@ -1,12 +1,15 @@
-"""FastAPI entry point for the Phase 1 backend scaffold."""
+"""FastAPI entry point for the FactCheck AI backend."""
 
 from __future__ import annotations
+
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.routers import dev_stream, dialogue
+from app.routers import dev_stream, dialogue, sessions
 from factcheck.config import AppSettings, get_settings
+from factcheck.db.session_store import ensure_dialogue_tables
 from factcheck.llm.ollama import check_ollama_health
 
 
@@ -14,21 +17,33 @@ def _parse_cors_origins(origins: str) -> list[str]:
     return [origin.strip() for origin in origins.split(",") if origin.strip()]
 
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Application startup and shutdown hooks."""
+    settings = getattr(app.state, "settings", None) or get_settings()
+    ensure_dialogue_tables(settings.sqlite_path)
+    yield
+
+
 def create_app(settings: AppSettings | None = None) -> FastAPI:
     """Create the FastAPI application with optional dev-only routes."""
 
     resolved_settings = settings or get_settings()
-    app = FastAPI(title="FactCheck AI", version="0.1.0")
+    app = FastAPI(title="FactCheck AI", version="0.6.0", lifespan=lifespan)
+    app.state.settings = resolved_settings
 
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=_parse_cors_origins(resolved_settings.dev_cors_origins),
+        allow_credentials=True,
+        allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+        allow_headers=["*"],
+    )
+
+    app.include_router(sessions.router)
     app.include_router(dialogue.router)
 
     if resolved_settings.dev_stream_enabled:
-        app.add_middleware(
-            CORSMiddleware,
-            allow_origins=_parse_cors_origins(resolved_settings.dev_cors_origins),
-            allow_methods=["GET", "POST", "OPTIONS"],
-            allow_headers=["*"],
-        )
         app.include_router(dev_stream.router)
 
     @app.get("/api/health")

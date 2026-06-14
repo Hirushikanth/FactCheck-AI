@@ -16,17 +16,23 @@ from factcheck.db import session_store
 def temp_db(tmp_path, monkeypatch):
     db_path = tmp_path / "test.db"
     monkeypatch.setattr(session_store, "DEFAULT_DB_PATH", db_path)
+    settings = AppSettings(dev_stream_enabled=False, sqlite_path=str(db_path), _env_file=None)
+    monkeypatch.setattr("factcheck.config.get_settings", lambda: settings)
     session_store.ensure_dialogue_tables(db_path)
     return db_path
 
 
 @pytest.fixture
-def client():
-    settings = AppSettings(dev_stream_enabled=False, _env_file=None)
+def client(temp_db):
+    settings = AppSettings(
+        dev_stream_enabled=False,
+        sqlite_path=str(temp_db),
+        _env_file=None,
+    )
     return TestClient(create_app(settings=settings))
 
 
-def _seed_session(session_id: str = "sess-api") -> None:
+def _seed_session(session_id: str = "sess-api", db_path=None) -> None:
     session_store.save_factcheck_session(
         session_id,
         raw_input="The Earth is round.",
@@ -42,6 +48,7 @@ def _seed_session(session_id: str = "sess-api") -> None:
             }
         ],
         final_report="# Fact-Check Report\n\nSupported.",
+        db_path=db_path,
     )
 
 
@@ -54,16 +61,17 @@ def test_dialogue_route_returns_404_for_missing_session(client, temp_db) -> None
 
 
 def test_dialogue_route_returns_intent_and_persists_history(client, temp_db, monkeypatch) -> None:
-    _seed_session()
+    _seed_session(db_path=temp_db)
 
-    async def fake_run_dialogue(**kwargs):
+    async def fake_run_dialogue_turn(**kwargs):
+        message = kwargs["user_message"]
         return {
             "response": "Claim 1 was SUPPORTED.",
             "intent": "clarification",
             "dialogue_history": [
                 {
                     "role": "user",
-                    "content": kwargs["user_message"],
+                    "content": message,
                     "timestamp": 1.0,
                     "intent": "clarification",
                     "token_estimate": 5,
@@ -83,7 +91,7 @@ def test_dialogue_route_returns_intent_and_persists_history(client, temp_db, mon
             "error": None,
         }
 
-    monkeypatch.setattr("app.routers.dialogue.run_dialogue", fake_run_dialogue)
+    monkeypatch.setattr("factcheck.dialogue.service.run_dialogue", fake_run_dialogue_turn)
 
     response = client.post(
         "/api/dialogue/sess-api",
@@ -101,9 +109,10 @@ def test_dialogue_route_returns_intent_and_persists_history(client, temp_db, mon
 
 
 def test_dialogue_route_triggers_pipeline_for_new_claim(client, temp_db, monkeypatch) -> None:
-    _seed_session("sess-new-claim")
+    _seed_session("sess-new-claim", db_path=temp_db)
 
-    async def fake_run_dialogue(**kwargs):
+    async def fake_run_dialogue_turn(**kwargs):
+        message = kwargs["user_message"]
         return {
             "response": "Queued.",
             "intent": "new_claim",
@@ -116,8 +125,8 @@ def test_dialogue_route_triggers_pipeline_for_new_claim(client, temp_db, monkeyp
         }
 
     trigger = AsyncMock()
-    monkeypatch.setattr("app.routers.dialogue.run_dialogue", fake_run_dialogue)
-    monkeypatch.setattr("app.routers.dialogue._trigger_new_factcheck", trigger)
+    monkeypatch.setattr("factcheck.dialogue.service.run_dialogue", fake_run_dialogue_turn)
+    monkeypatch.setattr("factcheck.dialogue.service._trigger_new_factcheck", trigger)
 
     response = client.post(
         "/api/dialogue/sess-new-claim",
