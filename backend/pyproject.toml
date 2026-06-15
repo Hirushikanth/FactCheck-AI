@@ -1,7 +1,7 @@
 [tool.poetry]
 name = "factcheck-ai-backend"
-version = "0.1.0"
-description = "Phase 1 backend scaffold for FactCheck AI."
+version = "0.6.0"
+description = "Multi-agent fact-checking backend with LangGraph, Ollama, and SSE session APIs."
 authors = ["Hirushikanth Vidyanandan"]
 readme = "../README.md"
 packages = [

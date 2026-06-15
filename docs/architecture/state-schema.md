@@ -1,6 +1,6 @@
 # Shared State Schema
 
-The shared state schema is the Phase 1 contract between all future agents. After Phase 1, changes to this contract require a documented schema version update and review of every agent that reads or writes the changed field.
+The shared state schema is the contract between all implemented agents. Changes to this schema require review of every agent, API model, and frontend type that reads or writes the affected field.
 
 ## PipelineStatus
 

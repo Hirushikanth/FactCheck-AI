@@ -70,6 +70,7 @@ credentials.json
 # --- Local data & persistence ------------------------------------------------
 data/
 backend/data/
+# Covers backend/factcheck_ai.db and any other local SQLite files.
 *.db
 *.sqlite
 *.sqlite3
@@ -144,6 +145,10 @@ Desktop.ini
 # --- Logs --------------------------------------------------------------------
 *.log
 logs/
+
+# --- NLP data ----------------------------------------------------------------
+# NLTK downloads wordnet / omw-1.4 on first fidelity check.
+nltk_data/
 
 # --- Tooling / runtime -------------------------------------------------------
 .python-version
