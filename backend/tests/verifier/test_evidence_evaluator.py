@@ -27,6 +27,7 @@ def test_verifier_prompts_require_definitional_framing() -> None:
     assert "aggregate fruits" in verifier_prompts.EVIDENCE_EVALUATOR_SYSTEM_PROMPT.casefold()
     assert "evidence excerpts" in verifier_prompts.EVIDENCE_EVALUATOR_SYSTEM_PROMPT.casefold()
     assert "full-page article text" in verifier_prompts.EVIDENCE_EVALUATOR_SYSTEM_PROMPT.casefold()
+    assert "high-authority" in verifier_prompts.EVIDENCE_EVALUATOR_SYSTEM_PROMPT.casefold()
 
 
 def test_format_evidence_labels_content_source() -> None:
@@ -39,18 +40,22 @@ def test_format_evidence_labels_content_source() -> None:
                 title="Earth shape",
                 snippet="Fetched article text.",
                 content_source="fetched",
+                credibility_tier="high",
             ),
             EvidenceItem(
                 url="https://news.example/earth",
                 title="Earth news",
                 snippet="Search snippet text.",
                 content_source="snippet",
+                credibility_tier="unknown",
             ),
         ]
     )
 
     assert "Excerpt (full-page excerpt): Fetched article text." in formatted
     assert "Excerpt (search snippet): Search snippet text." in formatted
+    assert "Source tier: high-authority" in formatted
+    assert "Source tier: unknown" in formatted
 
 
 def test_evaluator_prompt_distinguishes_bracket_types() -> None:

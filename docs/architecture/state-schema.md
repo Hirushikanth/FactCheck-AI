@@ -23,6 +23,8 @@ The shared state schema is the Phase 1 contract between all future agents. After
 | `reasoning` | `str` | Explanation connecting evidence to verdict. |
 | `search_queries` | `list[str]` | Exact web search queries issued for the claim. |
 
+Evidence hit pre-filtering uses Okapi BM25 re-ranking over each search result set before the evaluator LLM is invoked. Source credibility uses static domain-tier heuristics (high/medium/low) applied during hit re-ranking and exposed to the evaluator; this is not a full reputation database.
+
 ## FactCheckState
 
 | Field | Type | Owner | Description |

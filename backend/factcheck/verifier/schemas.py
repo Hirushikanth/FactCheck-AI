@@ -13,6 +13,7 @@ from factcheck.verifier.config import MAX_EVIDENCE_TOKENS, MAX_ITERATIONS
 
 
 ContentSource = Literal["fetched", "snippet"]
+CredibilityTier = Literal["high", "medium", "low", "unknown"]
 
 
 class EvidenceItem(BaseModel):
@@ -22,6 +23,7 @@ class EvidenceItem(BaseModel):
     title: str = ""
     snippet: str
     content_source: ContentSource = "snippet"
+    credibility_tier: CredibilityTier = "unknown"
     relevance_score: float = 0.0
     is_influential: bool = False
 

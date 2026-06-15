@@ -17,6 +17,7 @@ from factcheck.verifier.utils import (
     heuristic_prefilter_hits,
     truncate_snippet,
 )
+from factcheck.verifier.utils.credibility import classify_domain
 from factcheck.verifier.utils.framing import extract_evaluation_frame
 
 
@@ -216,6 +217,7 @@ async def retriever_node(
                 title=hit.title,
                 snippet=snippet,
                 content_source=content_source,
+                credibility_tier=classify_domain(hit.url),
                 relevance_score=score,
             )
         )

@@ -3,18 +3,26 @@
 from __future__ import annotations
 
 import re
+from collections import Counter
 from urllib.parse import urlsplit
 
 import tiktoken
 
 from factcheck.search import SearchHit
+from factcheck.verifier.config import (
+    CREDIBILITY_HIGH_BOOST,
+    CREDIBILITY_LOW_PENALTY,
+    CREDIBILITY_MEDIUM_BOOST,
+)
 from factcheck.verifier.schemas import EvidenceItem
+from factcheck.verifier.utils.credibility import classify_domain, credibility_tier_label
 from factcheck.verifier.utils.framing import (
     extract_evaluation_frame,
     frame_tokens,
     snippet_looks_colloquial,
     snippet_matches_frame,
 )
+from factcheck.verifier.utils.ranking import build_bm25_corpus, bm25_score
 
 
 _TOKEN_RE = re.compile(r"[a-z0-9]+")
@@ -96,7 +104,14 @@ def tokens(text: str) -> set[str]:
     return {token for token in _TOKEN_RE.findall(text.lower()) if token not in _STOPWORDS}
 
 
+def token_counts(text: str) -> Counter[str]:
+    return Counter(
+        token for token in _TOKEN_RE.findall(text.lower()) if token not in _STOPWORDS
+    )
+
+
 def token_overlap_score(claim: str, hit: SearchHit) -> float:
+    """Unweighted overlap fallback when BM25 corpus has only one document."""
     claim_tokens = tokens(claim)
     hit_tokens = tokens(f"{hit.title} {hit.snippet}")
     if not claim_tokens or not hit_tokens:
@@ -133,6 +148,17 @@ def _frame_adjusted_score(
     return adjusted
 
 
+def _credibility_adjusted_score(hit: SearchHit, base_score: float) -> float:
+    tier = classify_domain(hit.url)
+    if tier == "high":
+        return base_score + CREDIBILITY_HIGH_BOOST
+    if tier == "medium":
+        return base_score + CREDIBILITY_MEDIUM_BOOST
+    if tier == "low":
+        return base_score - CREDIBILITY_LOW_PENALTY
+    return base_score
+
+
 def heuristic_prefilter_hits(
     claim: str,
     hits: list[SearchHit],
@@ -140,9 +166,10 @@ def heuristic_prefilter_hits(
     top_n: int,
     evaluation_frame: str | None = None,
 ) -> list[tuple[SearchHit, float]]:
-    """Drop empty/duplicate snippets and keep the best lexical candidates."""
+    """Drop empty/duplicate snippets and keep the best BM25-ranked candidates."""
 
     frame = evaluation_frame or extract_evaluation_frame(claim)
+    corpus = build_bm25_corpus(hits, tokenize=token_counts) if len(hits) > 1 else None
     scored_hits: list[tuple[float, int, SearchHit]] = []
     seen_snippets_by_domain: dict[str, list[set[str]]] = {}
     for original_index, hit in enumerate(hits):
@@ -155,8 +182,18 @@ def heuristic_prefilter_hits(
             continue
 
         seen_snippets_by_domain.setdefault(domain, []).append(snippet_tokens)
-        base_score = token_overlap_score(claim, hit)
+        if corpus is not None:
+            base_score = bm25_score(
+                claim,
+                hit,
+                corpus,
+                tokenize=token_counts,
+                query_tokenize=tokens,
+            )
+        else:
+            base_score = token_overlap_score(claim, hit)
         score = _frame_adjusted_score(hit, base_score, evaluation_frame=frame)
+        score = _credibility_adjusted_score(hit, score)
         scored_hits.append((score, original_index, hit))
 
     scored_hits.sort(key=lambda item: (-item[0], item[1]))
@@ -171,6 +208,7 @@ def format_evidence(evidence: list[EvidenceItem]) -> str:
         (
             f"Source {index}: {item.url}\n"
             f"Title: {item.title or 'Untitled'}\n"
+            f"Source tier: {credibility_tier_label(item.credibility_tier)}\n"
             f"Excerpt ({'full-page excerpt' if item.content_source == 'fetched' else 'search snippet'}): "
             f"{item.snippet}"
         )

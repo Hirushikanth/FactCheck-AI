@@ -70,5 +70,6 @@ def test_verifier_schema_marks_influential_sources_and_missing_aspects() -> None
     )
 
     assert evidence.content_source == "snippet"
+    assert evidence.credibility_tier == "unknown"
     assert evidence.is_influential is True
     assert assessment.missing_aspects == ["independent source"]
