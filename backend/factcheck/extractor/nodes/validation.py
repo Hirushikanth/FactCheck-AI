@@ -88,27 +88,26 @@ def _looks_like_complete_declarative(claim_text: str) -> bool:
     if len(tokens) < 3 or tokens[0] in _FRAGMENT_STARTS:
         return False
 
-    return any(
-        token in _FINITE_VERB_HINTS or token.endswith(("ed", "s"))
-        for token in tokens[1:]
-    )
+    return any(token in _FINITE_VERB_HINTS for token in tokens[1:])
 
 
 async def _validate_claim(potential_claim: PotentialClaim) -> ValidatedClaim:
-    llm = get_extractor_llm(temperature=VALIDATION_CONFIG["temperature"])
-    response = await call_llm_with_structured_output(
-        llm=llm,
-        output_class=ValidationOutput,
-        messages=[
-            ("system", VALIDATION_SYSTEM_PROMPT),
-            ("human", VALIDATION_HUMAN_PROMPT.format(claim=potential_claim.claim_text)),
-        ],
-        context_desc=f"validation for '{potential_claim.claim_text}'",
-    )
+    heuristic_accepts = _looks_like_complete_declarative(potential_claim.claim_text)
+    response = None
+    if not heuristic_accepts:
+        llm = get_extractor_llm(temperature=VALIDATION_CONFIG["temperature"])
+        response = await call_llm_with_structured_output(
+            llm=llm,
+            output_class=ValidationOutput,
+            messages=[
+                ("system", VALIDATION_SYSTEM_PROMPT),
+                ("human", VALIDATION_HUMAN_PROMPT.format(claim=potential_claim.claim_text)),
+            ],
+            context_desc=f"validation for '{potential_claim.claim_text}'",
+        )
     return ValidatedClaim(
         claim_text=potential_claim.claim_text,
-        is_complete_declarative=bool(response and response.is_complete_declarative)
-        or _looks_like_complete_declarative(potential_claim.claim_text),
+        is_complete_declarative=heuristic_accepts or bool(response and response.is_complete_declarative),
         disambiguated_sentence=potential_claim.disambiguated_sentence,
         original_sentence=potential_claim.original_sentence,
         original_index=potential_claim.original_index,

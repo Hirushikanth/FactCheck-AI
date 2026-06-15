@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections import Counter
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Awaitable, Callable, Hashable, Sequence
 from typing import TypeVar
 
 
@@ -17,6 +17,7 @@ ResultT = TypeVar("ResultT")
 
 Processor = Callable[[T, object], Awaitable[tuple[bool, R | None]]]
 ResultFactory = Callable[[R, T], ResultT | None]
+BatchProcessor = Callable[[Sequence[T], object], Awaitable[dict[Hashable, tuple[bool, str | None]]]]
 
 
 def _normalize_for_comparison(text: str) -> str:
@@ -25,6 +26,42 @@ def _normalize_for_comparison(text: str) -> str:
     Two sentences are treated as the same vote when their normalized forms match.
     """
     return text.strip().lower().rstrip(".,;:!?").strip()
+
+
+def _majority_winner(results: Sequence[str], min_successes: int) -> str | None:
+    """Return the first result whose normalized value reaches quorum."""
+
+    if not results:
+        return None
+
+    normalized_counts: Counter[str] = Counter(_normalize_for_comparison(result) for result in results)
+    most_common_normalized, count = normalized_counts.most_common(1)[0]
+    if count < min_successes:
+        return None
+
+    for result in results:
+        if _normalize_for_comparison(result) == most_common_normalized:
+            return result
+    return None
+
+
+def _majority_still_possible(
+    results: Sequence[str],
+    *,
+    min_successes: int,
+    remaining_attempts: int,
+) -> bool:
+    """Return whether future attempts can still produce a quorum."""
+
+    if _majority_winner(results, min_successes) is not None:
+        return False
+
+    if remaining_attempts >= min_successes:
+        return True
+
+    normalized_counts: Counter[str] = Counter(_normalize_for_comparison(result) for result in results)
+    best_existing = max(normalized_counts.values(), default=0)
+    return best_existing + remaining_attempts >= min_successes
 
 
 async def _majority_vote_single_item(
@@ -109,3 +146,73 @@ async def process_with_voting(
         )
     )
     return [result for result in gathered if result is not None]
+
+
+async def process_batch_with_voting(
+    *,
+    items: Sequence[T],
+    batch_processor: BatchProcessor[T],
+    llm: object,
+    completions: int,
+    min_successes: int,
+    result_factory: ResultFactory[str, ResultT],
+    item_key: Callable[[T], Hashable] | None = None,
+) -> list[ResultT]:
+    """Process items in batches while allowing per-item early stopping.
+
+    Each batch attempt may return one string vote per item. An item stops
+    participating once it has reached quorum or when quorum becomes
+    mathematically impossible with the remaining attempts.
+    """
+
+    if not items:
+        return []
+
+    key_fn = item_key or (lambda item: item)
+    keyed_items = [(key_fn(item), item) for item in items]
+    item_by_key = {key: item for key, item in keyed_items}
+    votes_by_key: dict[Hashable, list[str]] = {key: [] for key, _ in keyed_items}
+    resolved: dict[Hashable, ResultT | None] = {}
+    active_keys = [key for key, _ in keyed_items]
+
+    for attempt in range(completions):
+        if not active_keys:
+            break
+
+        active_items = [item_by_key[key] for key in active_keys]
+        batch_results = await batch_processor(active_items, llm)
+        remaining_attempts = completions - attempt - 1
+        next_active: list[Hashable] = []
+
+        for key in active_keys:
+            vote = batch_results.get(key)
+            if vote is not None:
+                success, value = vote
+                if success and value is not None:
+                    votes_by_key[key].append(value)
+
+            winner = _majority_winner(votes_by_key[key], min_successes)
+            if winner is not None:
+                resolved[key] = result_factory(winner, item_by_key[key])
+                continue
+
+            if _majority_still_possible(
+                votes_by_key[key],
+                min_successes=min_successes,
+                remaining_attempts=remaining_attempts,
+            ):
+                next_active.append(key)
+            else:
+                logger.info(
+                    "Batch voting failed: quorum impossible after %s/%s attempts",
+                    attempt + 1,
+                    completions,
+                )
+
+        active_keys = next_active
+
+    return [
+        resolved[key]
+        for key, _item in keyed_items
+        if key in resolved and resolved[key] is not None
+    ]

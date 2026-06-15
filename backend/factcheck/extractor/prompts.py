@@ -11,6 +11,18 @@ Sentence:
 {sentence}
 """
 
+BATCH_SELECTION_HUMAN_PROMPT = """
+Review each indexed sentence independently. Return one result for every indexed sentence you can evaluate.
+
+{items}
+"""
+
+BATCH_DISAMBIGUATION_HUMAN_PROMPT = """
+Review each indexed sentence independently. Return one result for every indexed sentence you can evaluate.
+
+{items}
+"""
+
 VALIDATION_HUMAN_PROMPT = """
 Claim:
 {claim}

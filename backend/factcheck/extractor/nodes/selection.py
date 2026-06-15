@@ -7,9 +7,13 @@ import logging
 from pydantic import BaseModel, Field, field_validator
 
 from factcheck.extractor.config import SELECTION_CONFIG
-from factcheck.extractor.prompts import HUMAN_PROMPT, SELECTION_SYSTEM_PROMPT
+from factcheck.extractor.prompts import (
+    BATCH_SELECTION_HUMAN_PROMPT,
+    HUMAN_PROMPT,
+    SELECTION_SYSTEM_PROMPT,
+)
 from factcheck.extractor.schemas import ContextualSentence, ExtractorState, SelectedContent
-from factcheck.extractor.utils.voting import process_with_voting
+from factcheck.extractor.utils.voting import process_batch_with_voting, process_with_voting
 from factcheck.llm.factory import get_extractor_llm
 from factcheck.llm.structured import call_llm_with_structured_output
 
@@ -33,6 +37,91 @@ class SelectionOutput(BaseModel):
         if isinstance(value, list):
             return "\n".join(str(item) for item in value if item is not None and str(item).strip())
         return value
+
+
+class BatchSelectionItemOutput(BaseModel):
+    """Structured output for one item in a batch selection call."""
+
+    original_index: int
+    reasoning: str = Field(
+        description="Step-by-step analysis of whether the sentence contains verifiable information."
+    )
+    processed_sentence: str | None = Field(default=None)
+    no_verifiable_claims: bool
+    remains_unchanged: bool
+
+    @field_validator("reasoning", mode="before")
+    @classmethod
+    def _normalize_reasoning(cls, value: object) -> object:
+        if isinstance(value, list):
+            return "\n".join(str(item) for item in value if item is not None and str(item).strip())
+        return value
+
+
+class BatchSelectionOutput(BaseModel):
+    """Structured output for a batched selection attempt."""
+
+    results: list[BatchSelectionItemOutput] = Field(default_factory=list)
+
+
+def _format_batch_selection_items(items: list[ContextualSentence]) -> str:
+    blocks: list[str] = []
+    for item in items:
+        blocks.append(
+            "\n".join(
+                [
+                    f"Sentence #{item.original_index}",
+                    "Excerpt:",
+                    item.context_for_llm,
+                    "",
+                    "Sentence:",
+                    item.original_sentence,
+                ]
+            )
+        )
+    return "\n\n".join(blocks)
+
+
+async def _batch_selection_attempt(
+    contextual_items: list[ContextualSentence],
+    llm: object,
+) -> dict[int, tuple[bool, str | None]]:
+    response = await call_llm_with_structured_output(
+        llm=llm,
+        output_class=BatchSelectionOutput,
+        messages=[
+            ("system", SELECTION_SYSTEM_PROMPT),
+            (
+                "human",
+                BATCH_SELECTION_HUMAN_PROMPT.format(
+                    items=_format_batch_selection_items(contextual_items),
+                ),
+            ),
+        ],
+        context_desc=f"selection batch for {len(contextual_items)} sentences",
+    )
+
+    if not response:
+        return {}
+
+    results: dict[int, tuple[bool, str | None]] = {}
+    original_sentence_by_index = {
+        item.original_index: item.original_sentence for item in contextual_items
+    }
+    for item_output in response.results:
+        original_sentence = original_sentence_by_index.get(item_output.original_index)
+        if original_sentence is None:
+            continue
+        if not item_output.processed_sentence or item_output.no_verifiable_claims:
+            results[item_output.original_index] = (False, None)
+            continue
+        processed = (
+            original_sentence
+            if item_output.remains_unchanged
+            else item_output.processed_sentence.strip()
+        )
+        results[item_output.original_index] = (True, processed)
+    return results
 
 
 async def _single_selection_attempt(
@@ -87,13 +176,37 @@ async def selection_node(state: ExtractorState) -> dict[str, list[SelectedConten
 
     preceding_by_index = {item.original_index: item for item in state.preceding_context_sentences}
     llm = get_extractor_llm(temperature=SELECTION_CONFIG["temperature"])
-    selected = await process_with_voting(
+    selected = await process_batch_with_voting(
         items=state.contextual_sentences,
-        processor=_single_selection_attempt,
+        batch_processor=_batch_selection_attempt,
         llm=llm,
         completions=SELECTION_CONFIG["completions"],
         min_successes=SELECTION_CONFIG["min_successes"],
         result_factory=_create_selected_content_factory(preceding_by_index),
+        item_key=lambda item: item.original_index,
     )
-    logger.info("Selected %s/%s contextual sentences", len(selected), len(state.contextual_sentences))
-    return {"selected_contents": selected}
+    selected_by_index = {
+        content.original_context_item.original_index: content for content in selected
+    }
+    unresolved_items = [
+        item for item in state.contextual_sentences if item.original_index not in selected_by_index
+    ]
+    if unresolved_items:
+        fallback_selected = await process_with_voting(
+            items=unresolved_items,
+            processor=_single_selection_attempt,
+            llm=llm,
+            completions=SELECTION_CONFIG["completions"],
+            min_successes=SELECTION_CONFIG["min_successes"],
+            result_factory=_create_selected_content_factory(preceding_by_index),
+        )
+        for content in fallback_selected:
+            selected_by_index[content.original_context_item.original_index] = content
+
+    ordered_selected = [
+        selected_by_index[item.original_index]
+        for item in state.contextual_sentences
+        if item.original_index in selected_by_index
+    ]
+    logger.info("Selected %s/%s contextual sentences", len(ordered_selected), len(state.contextual_sentences))
+    return {"selected_contents": ordered_selected}

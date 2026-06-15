@@ -4,7 +4,7 @@ import asyncio
 
 from pydantic import BaseModel
 
-from factcheck.extractor.utils.voting import process_with_voting
+from factcheck.extractor.utils.voting import process_batch_with_voting, process_with_voting
 from factcheck.llm.structured import call_llm_with_structured_output
 
 
@@ -203,6 +203,81 @@ async def test_process_with_voting_parallelizes_items() -> None:
 
     assert sorted(results) == ["a", "b", "c"]
     assert max_in_flight >= 2
+
+
+async def test_process_batch_with_voting_stops_resolved_items_early() -> None:
+    calls: list[list[str]] = []
+    responses = [
+        {"a": (True, "Alpha"), "b": (True, "Beta")},
+        {"a": (True, "alpha."), "b": (True, "Gamma")},
+        {"b": (True, "Beta")},
+    ]
+
+    async def batch_processor(items, llm):
+        calls.append(list(items))
+        return responses[len(calls) - 1]
+
+    results = await process_batch_with_voting(
+        items=["a", "b"],
+        batch_processor=batch_processor,
+        llm=object(),
+        completions=3,
+        min_successes=2,
+        result_factory=lambda value, item: f"{item}:{value}",
+    )
+
+    assert results == ["a:Alpha", "b:Beta"]
+    assert calls == [["a", "b"], ["a", "b"], ["b"]]
+
+
+async def test_process_batch_with_voting_rejects_split_votes() -> None:
+    calls = 0
+    responses = [
+        {"sentence": (True, "A")},
+        {"sentence": (True, "B")},
+        {"sentence": (True, "C")},
+    ]
+
+    async def batch_processor(items, llm):
+        nonlocal calls
+        calls += 1
+        return responses[calls - 1]
+
+    results = await process_batch_with_voting(
+        items=["sentence"],
+        batch_processor=batch_processor,
+        llm=object(),
+        completions=3,
+        min_successes=2,
+        result_factory=lambda value, item: f"{item}:{value}",
+    )
+
+    assert results == []
+    assert calls == 3
+
+
+async def test_process_batch_with_voting_stops_when_majority_is_impossible() -> None:
+    calls: list[list[str]] = []
+    responses = [
+        {"discard": (False, None), "keep": (True, "Keep")},
+        {"discard": (False, None), "keep": (True, "keep!")},
+    ]
+
+    async def batch_processor(items, llm):
+        calls.append(list(items))
+        return responses[len(calls) - 1]
+
+    results = await process_batch_with_voting(
+        items=["discard", "keep"],
+        batch_processor=batch_processor,
+        llm=object(),
+        completions=3,
+        min_successes=2,
+        result_factory=lambda value, item: f"{item}:{value}",
+    )
+
+    assert results == ["keep:Keep"]
+    assert calls == [["discard", "keep"], ["discard", "keep"]]
 
 
 async def test_structured_llm_helper_returns_parsed_model() -> None:
