@@ -190,14 +190,17 @@ def _ensure_wordnet() -> None:
 
 @lru_cache(maxsize=4096)
 def _morphological_forms(token: str) -> frozenset[str]:
-    """Return surface token plus WordNet morphological variants."""
+    """Return the surface token plus WordNet morphological variants.
 
+    Uses the public wn.morphy() API (not the private wn._morphy()).
+    """
     _ensure_wordnet()
     from nltk.corpus import wordnet as wn
 
     forms = {token}
     for pos in (wn.NOUN, wn.VERB, wn.ADJ, wn.ADV):
-        for morph in wn._morphy(token, pos) or []:
+        morph = wn.morphy(token, pos)
+        if morph:
             forms.add(morph)
     return frozenset(forms)
 

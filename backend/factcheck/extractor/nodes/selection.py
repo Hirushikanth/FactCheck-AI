@@ -63,14 +63,20 @@ async def _single_selection_attempt(
     return True, processed
 
 
-def _create_selected_content(
-    processed_sentence: str,
-    contextual_item: ContextualSentence,
-) -> SelectedContent:
-    return SelectedContent(
-        processed_sentence=processed_sentence,
-        original_context_item=contextual_item,
-    )
+def _create_selected_content_factory(
+    preceding_by_index: dict[int, ContextualSentence],
+):
+    def _create_selected_content(
+        processed_sentence: str,
+        contextual_item: ContextualSentence,
+    ) -> SelectedContent:
+        return SelectedContent(
+            processed_sentence=processed_sentence,
+            original_context_item=contextual_item,
+            preceding_context_item=preceding_by_index[contextual_item.original_index],
+        )
+
+    return _create_selected_content
 
 
 async def selection_node(state: ExtractorState) -> dict[str, list[SelectedContent]]:
@@ -79,6 +85,7 @@ async def selection_node(state: ExtractorState) -> dict[str, list[SelectedConten
     if not state.contextual_sentences:
         return {"selected_contents": []}
 
+    preceding_by_index = {item.original_index: item for item in state.preceding_context_sentences}
     llm = get_extractor_llm(temperature=SELECTION_CONFIG["temperature"])
     selected = await process_with_voting(
         items=state.contextual_sentences,
@@ -86,7 +93,7 @@ async def selection_node(state: ExtractorState) -> dict[str, list[SelectedConten
         llm=llm,
         completions=SELECTION_CONFIG["completions"],
         min_successes=SELECTION_CONFIG["min_successes"],
-        result_factory=_create_selected_content,
+        result_factory=_create_selected_content_factory(preceding_by_index),
     )
     logger.info("Selected %s/%s contextual sentences", len(selected), len(state.contextual_sentences))
     return {"selected_contents": selected}

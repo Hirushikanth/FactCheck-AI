@@ -53,7 +53,7 @@ Keep `OLLAMA_CONCURRENCY=1` for a MacBook or consumer GPU. The backend may still
 
 Try `OLLAMA_CONCURRENCY=2` only on high-VRAM hardware, such as a 24 GB+ GPU or a remote LAN host with enough memory for multiple model contexts. Higher values can cause VRAM thrashing or out-of-memory failures.
 
-Selection and disambiguation schedule voting work across sentences with `asyncio.gather`; the semaphore still enforces `OLLAMA_CONCURRENCY`. Within each sentence, voting stops early once `min_successes` is reached, so `completions=3` with `min_successes=2` often issues only two Ollama calls on the happy path.
+Selection and disambiguation schedule voting work across sentences with `asyncio.gather`; the semaphore still enforces `OLLAMA_CONCURRENCY`. Within each sentence, all `completions` runs finish before majority voting, so `completions=3` with `min_successes=2` issues three Ollama calls per sentence and accepts the output only when at least two normalized responses agree.
 
 ## Smoke Test
 

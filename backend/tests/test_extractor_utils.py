@@ -4,7 +4,6 @@ import asyncio
 
 from pydantic import BaseModel
 
-from factcheck.extractor.utils.text import remove_following_sentences
 from factcheck.extractor.utils.voting import process_with_voting
 from factcheck.llm.structured import call_llm_with_structured_output
 
@@ -87,28 +86,6 @@ class StructuredNonePlainJsonLlm:
         return '{"value": "plain-json"}'
 
 
-def test_remove_following_sentences_strips_following_context() -> None:
-    context = "\n".join(
-        [
-            "[Preceding Sentences:]",
-            "Earlier context.",
-            "[Sentence of Interest for current task:]",
-            "The claim sentence.",
-            "[Following Sentences:]",
-            "Later context.",
-        ]
-    )
-
-    assert remove_following_sentences(context) == "\n".join(
-        [
-            "[Preceding Sentences:]",
-            "Earlier context.",
-            "[Sentence of Interest for current task:]",
-            "The claim sentence.",
-        ]
-    )
-
-
 async def test_process_with_voting_requires_minimum_successes() -> None:
     attempts = iter([(True, "first"), (False, None), (True, "second")])
 
@@ -124,16 +101,17 @@ async def test_process_with_voting_requires_minimum_successes() -> None:
         result_factory=lambda value, item: f"{item}:{value}",
     )
 
-    assert results == ["sentence:first"]
+    assert results == []
 
 
-async def test_process_with_voting_stops_early_at_min_successes() -> None:
+async def test_process_with_voting_picks_majority_not_first() -> None:
     call_count = 0
 
     async def processor(item, llm):
         nonlocal call_count
         call_count += 1
-        return True, f"value-{call_count}"
+        values = ["wrong", "right", "right"]
+        return True, values[call_count - 1]
 
     results = await process_with_voting(
         items=["sentence"],
@@ -144,8 +122,44 @@ async def test_process_with_voting_stops_early_at_min_successes() -> None:
         result_factory=lambda value, item: f"{item}:{value}",
     )
 
-    assert results == ["sentence:value-1"]
-    assert call_count == 2
+    assert results == ["sentence:right"]
+    assert call_count == 3
+
+
+async def test_process_with_voting_normalizes_equivalent_strings() -> None:
+    attempts = iter([(True, "Hello."), (True, "hello"), (True, "HELLO")])
+
+    async def processor(item, llm):
+        return next(attempts)
+
+    results = await process_with_voting(
+        items=["sentence"],
+        processor=processor,
+        llm=object(),
+        completions=3,
+        min_successes=2,
+        result_factory=lambda value, item: f"{item}:{value}",
+    )
+
+    assert results == ["sentence:Hello."]
+
+
+async def test_process_with_voting_rejects_split_votes() -> None:
+    attempts = iter([(True, "A"), (True, "B"), (True, "C")])
+
+    async def processor(item, llm):
+        return next(attempts)
+
+    results = await process_with_voting(
+        items=["sentence"],
+        processor=processor,
+        llm=object(),
+        completions=3,
+        min_successes=2,
+        result_factory=lambda value, item: f"{item}:{value}",
+    )
+
+    assert results == []
 
 
 async def test_process_with_voting_parallelizes_items() -> None:

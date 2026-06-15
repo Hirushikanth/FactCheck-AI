@@ -28,6 +28,90 @@ logger = logging.getLogger(__name__)
 # but there is no reason to rebuild it on every call.
 _segmenter = pysbd.Segmenter(language="en", clean=False)
 _KNOWN_ABBREVIATION_BOUNDARY_RE = re.compile(r"\b(D\.C\.)\s+(?=[A-Z0-9])")
+_WORD_RE = re.compile(r"[A-Za-z0-9]+")
+
+_MIN_MEANINGFUL_WORDS = 3
+_STANDALONE_RESPONSES = frozenset({"no", "yes", "ok", "true", "false"})
+_COPULAS_AND_AUXILIARIES = frozenset(
+    {
+        "is",
+        "are",
+        "was",
+        "were",
+        "be",
+        "been",
+        "being",
+        "has",
+        "have",
+        "had",
+        "do",
+        "does",
+        "did",
+        "will",
+        "would",
+        "shall",
+        "should",
+        "may",
+        "might",
+        "must",
+        "can",
+        "could",
+    }
+)
+_IRREGULAR_VERB_FORMS = frozenset(
+    {
+        "began",
+        "built",
+        "came",
+        "did",
+        "found",
+        "gave",
+        "grew",
+        "had",
+        "kept",
+        "left",
+        "made",
+        "put",
+        "ran",
+        "read",
+        "said",
+        "saw",
+        "sent",
+        "took",
+        "told",
+        "went",
+        "won",
+        "wrote",
+    }
+)
+
+
+def _is_meaningful_fragment(sentence: str) -> bool:
+    """Return whether a segment is likely a standalone assertion worth keeping."""
+    words = _WORD_RE.findall(sentence)
+    if not words:
+        return False
+
+    if len(words) == 1 and words[0].lower().rstrip(".") in _STANDALONE_RESPONSES:
+        return True
+
+    if len(words) < _MIN_MEANINGFUL_WORDS:
+        return False
+
+    words_lower = [word.lower() for word in words]
+    if any(word in _COPULAS_AND_AUXILIARIES for word in words_lower):
+        return True
+
+    if any(word in _IRREGULAR_VERB_FORMS for word in words_lower):
+        return True
+
+    for word in words_lower[1:]:
+        if word.endswith(("ed", "ing")) and len(word) > 4:
+            return True
+        if word.endswith("s") and len(word) > 3 and word not in _COPULAS_AND_AUXILIARIES:
+            return True
+
+    return False
 
 
 def _split_known_sentence_final_abbreviations(sentence: str) -> list[str]:
@@ -72,18 +156,17 @@ async def _sentence_splitter_and_context_creator(
 
     raw_sentences = _split_sentences(answer_text)
 
-    # Merge fragments shorter than 5 characters (e.g. stray initials that
-    # slipped through) into the next sentence so the LLM always receives
-    # something meaningful.
+    # Merge non-assertion fragments (abbreviation debris, stray tokens) into the
+    # next sentence using predicate detection rather than character count.
     merged_sentences: list[str] = []
     index = 0
     while index < len(raw_sentences):
         sentence = raw_sentences[index]
-        while len(sentence) < 5 and index + 1 < len(raw_sentences):
+        while not _is_meaningful_fragment(sentence) and index + 1 < len(raw_sentences):
             index += 1
             sentence = f"{sentence} {raw_sentences[index]}".strip()
-        if sentence:
-            merged_sentences.append(sentence)
+        if sentence.strip():
+            merged_sentences.append(sentence.strip())
         index += 1
 
     contextual_sentences: list[ContextualSentence] = []
@@ -117,15 +200,30 @@ async def _sentence_splitter_and_context_creator(
 
 
 async def sentence_splitter_node(state: ExtractorState) -> dict[str, list[ContextualSentence]]:
-    """Split raw input into contextual sentences."""
+    """Split raw input into per-stage contextual sentences.
 
-    windows = CONTEXT_WINDOWS["selection"]
+    Selection receives bidirectional windows; disambiguation and decomposition
+    receive preceding-only windows built from their own config entries.
+    """
+    selection_window = CONTEXT_WINDOWS["selection"]
+    preceding_window = CONTEXT_WINDOWS["disambiguation"]
+
     contextual_sentences = await _sentence_splitter_and_context_creator(
         state.raw_input,
-        p_sentences=windows["preceding_sentences"],
-        f_sentences=windows["following_sentences"],
+        p_sentences=selection_window["preceding_sentences"],
+        f_sentences=selection_window["following_sentences"],
         include_metadata=bool(state.metadata),
         metadata=state.metadata,
     )
-    return {"contextual_sentences": contextual_sentences}
+    preceding_context_sentences = await _sentence_splitter_and_context_creator(
+        state.raw_input,
+        p_sentences=preceding_window["preceding_sentences"],
+        f_sentences=preceding_window["following_sentences"],
+        include_metadata=bool(state.metadata),
+        metadata=state.metadata,
+    )
+    return {
+        "contextual_sentences": contextual_sentences,
+        "preceding_context_sentences": preceding_context_sentences,
+    }
 

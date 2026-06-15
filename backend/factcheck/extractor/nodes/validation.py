@@ -135,10 +135,11 @@ async def validation_node(state: ExtractorState) -> dict[str, list[ValidatedClai
         if not validated.is_complete_declarative:
             logger.info("Discarded invalid claim: %s", validated.claim_text)
             continue
-        if validated.claim_text in seen_claims:
-            logger.info("Discarded duplicate claim: %s", validated.claim_text)
+        normalized_key = validated.claim_text.strip().casefold()
+        if normalized_key in seen_claims:
+            logger.info("Discarded duplicate claim (case-insensitive): %s", validated.claim_text)
             continue
-        seen_claims.add(validated.claim_text)
+        seen_claims.add(normalized_key)
         validated_claims.append(validated)
 
     return {"validated_claims": validated_claims}

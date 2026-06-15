@@ -23,7 +23,10 @@ async def test_extractor_graph_runs_claim_extraction_stages_in_order(monkeypatch
             context_for_llm="[Sentence of Interest for current task:]\nAda wrote the first algorithm.",
             original_index=0,
         )
-        return {"contextual_sentences": [contextual]}
+        return {
+            "contextual_sentences": [contextual],
+            "preceding_context_sentences": [contextual],
+        }
 
     async def selection_node(state):
         calls.append("selection")
@@ -32,6 +35,7 @@ async def test_extractor_graph_runs_claim_extraction_stages_in_order(monkeypatch
                 SelectedContent(
                     processed_sentence=state.contextual_sentences[0].original_sentence,
                     original_context_item=state.contextual_sentences[0],
+                    preceding_context_item=state.preceding_context_sentences[0],
                 )
             ]
         }

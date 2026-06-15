@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections import Counter
 from collections.abc import Awaitable, Callable, Sequence
 from typing import TypeVar
 
@@ -18,7 +19,15 @@ Processor = Callable[[T, object], Awaitable[tuple[bool, R | None]]]
 ResultFactory = Callable[[R, T], ResultT | None]
 
 
-async def _vote_single_item(
+def _normalize_for_comparison(text: str) -> str:
+    """Normalize text for majority vote comparison.
+
+    Two sentences are treated as the same vote when their normalized forms match.
+    """
+    return text.strip().lower().rstrip(".,;:!?").strip()
+
+
+async def _majority_vote_single_item(
     *,
     item: T,
     processor: Processor[T, R],
@@ -27,26 +36,47 @@ async def _vote_single_item(
     min_successes: int,
     result_factory: ResultFactory[R, ResultT],
 ) -> ResultT | None:
-    """Run repeated attempts for one item and return a result if the threshold is met.
+    """Run all completions, then pick the majority result.
 
-    Attempts stop early once ``min_successes`` is reached.  GPU safety is
-    enforced by :func:`factcheck.llm.concurrency.get_ollama_semaphore` inside
-    each processor call, not by serialising attempts here.
+    Unlike threshold-based early stopping, this runs every completion and
+    accepts the output only when at least ``min_successes`` responses agree.
     """
-    successes: list[R] = []
+    all_results: list[R] = []
+
     for _ in range(completions):
         success, value = await processor(item, llm)
         if success and value is not None:
-            successes.append(value)
-            if len(successes) >= min_successes:
-                break
+            all_results.append(value)
 
-    if len(successes) < min_successes:
-        logger.info("Voting rejected item with %s/%s successes", len(successes), completions)
+    if len(all_results) < min_successes:
+        logger.info(
+            "Voting failed: only %s/%s successful responses",
+            len(all_results),
+            completions,
+        )
         return None
 
-    processed = result_factory(successes[0], item)
-    return processed
+    if all_results and isinstance(all_results[0], str):
+        normalized_counts: Counter[str] = Counter(
+            _normalize_for_comparison(str(r)) for r in all_results
+        )
+        most_common_normalized, count = normalized_counts.most_common(1)[0]
+        if count < min_successes:
+            logger.info(
+                "No majority: best was %s/%s for '%s'",
+                count,
+                completions,
+                most_common_normalized[:50],
+            )
+            return None
+        for r in all_results:
+            if _normalize_for_comparison(str(r)) == most_common_normalized:
+                return result_factory(r, item)
+
+    if len(all_results) >= min_successes:
+        return result_factory(all_results[0], item)
+
+    return None
 
 
 async def process_with_voting(
@@ -58,18 +88,16 @@ async def process_with_voting(
     min_successes: int,
     result_factory: ResultFactory[R, ResultT],
 ) -> list[ResultT]:
-    """Run repeated attempts per item and keep items meeting the success threshold.
+    """Process items with majority voting across multiple completions.
 
-    Items are scheduled concurrently via ``asyncio.gather``.  The global
-    Ollama semaphore in :func:`factcheck.llm.concurrency.get_ollama_semaphore`
-    caps simultaneous in-flight requests, so this does not overload local
-    hardware.  Within each item, attempts stop early once ``min_successes``
-    is reached (e.g. ``completions=3`` with ``min_successes=2`` may issue
-    only two calls on the happy path).
+    All completions run before voting occurs. The most common output wins if it
+    meets the ``min_successes`` threshold. For string outputs, normalized string
+    comparison determines majority. For structured outputs, falls back to
+    threshold-based selection.
     """
     gathered = await asyncio.gather(
         *(
-            _vote_single_item(
+            _majority_vote_single_item(
                 item=item,
                 processor=processor,
                 llm=llm,
