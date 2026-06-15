@@ -21,6 +21,7 @@ class SelectedContent(BaseModel):
 
     processed_sentence: str
     original_context_item: ContextualSentence
+    preceding_context_item: ContextualSentence
 
 
 class DisambiguatedContent(BaseModel):
@@ -56,6 +57,7 @@ class ExtractorState(BaseModel):
 
     raw_input: str
     contextual_sentences: list[ContextualSentence] = Field(default_factory=list)
+    preceding_context_sentences: list[ContextualSentence] = Field(default_factory=list)
     selected_contents: list[SelectedContent] = Field(default_factory=list)
     disambiguated_contents: list[DisambiguatedContent] = Field(default_factory=list)
     potential_claims: list[PotentialClaim] = Field(default_factory=list)

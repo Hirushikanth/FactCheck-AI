@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
@@ -27,36 +29,48 @@ def _validated_claim() -> ValidatedClaim:
     )
 
 
+class _FakeCompiledGraph:
+    def __init__(self, chunks: list[dict[str, dict[str, Any]]]) -> None:
+        self._chunks = chunks
+
+    async def astream(
+        self,
+        state: dict[str, Any],
+        *,
+        stream_mode: str,
+    ) -> AsyncIterator[dict[str, dict[str, Any]]]:
+        assert stream_mode == "updates"
+        for chunk in self._chunks:
+            yield chunk
+
+
 @pytest.mark.asyncio
 async def test_run_factcheck_with_events_emits_contract_events(monkeypatch) -> None:
     claim = _validated_claim()
-    final_state = {
-        "raw_input": "Carrots improve eyesight.",
-        "extracted_claims": [claim],
-        "claim_results": [
-            {
-                "claim": "Carrots improve eyesight.",
-                "verdict": "REFUTED",
-                "confidence": 0.8,
-                "evidence": ["No evidence."],
-                "sources": ["https://example.com"],
-                "reasoning": "Refuted.",
-                "search_queries": ["carrots eyesight"],
-            }
-        ],
-        "final_report": "# Report",
-        "messages": [],
-        "current_agent": "reporter",
-        "session_id": "sess-runner",
-        "error": None,
-        "status": "done",
+    claim_result = {
+        "claim": "Carrots improve eyesight.",
+        "verdict": "REFUTED",
+        "confidence": 0.8,
+        "evidence": ["No evidence."],
+        "sources": ["https://example.com"],
+        "reasoning": "Refuted.",
+        "search_queries": ["carrots eyesight"],
     }
-
-    monkeypatch.setattr(
-        runner,
-        "run_factcheck_pipeline",
-        AsyncMock(return_value=final_state),
+    fake_graph = _FakeCompiledGraph(
+        [
+            {"extractor": {"current_agent": "extractor", "extracted_claims": [claim]}},
+            {"verifier": {"current_agent": "verifier", "claim_results": [claim_result]}},
+            {
+                "reporter": {
+                    "current_agent": "reporter",
+                    "final_report": "# Report",
+                    "status": "done",
+                }
+            },
+        ]
     )
+
+    monkeypatch.setattr(runner, "build_graph", lambda: fake_graph)
 
     event_bus.create_session_queue("sess-runner")
     collected: list[dict] = []
@@ -76,19 +90,25 @@ async def test_run_factcheck_with_events_emits_contract_events(monkeypatch) -> N
     assert result["final_report"] == "# Report"
     event_names = [item["event"] for item in collected]
     assert event_names.count("agent_start") == 3
+    assert [item["data"]["agent"] for item in collected if item["event"] == "agent_start"] == [
+        "extractor",
+        "verifier",
+        "reporter",
+    ]
     assert "claim_found" in event_names
-    assert "verdict_ready" in event_names
+    assert "verdict_ready" not in event_names
     assert "report_ready" in event_names
     assert event_names[-1] == "pipeline_done"
 
 
 @pytest.mark.asyncio
 async def test_run_factcheck_with_events_emits_pipeline_error(monkeypatch) -> None:
-    monkeypatch.setattr(
-        runner,
-        "run_factcheck_pipeline",
-        AsyncMock(side_effect=RuntimeError("boom")),
-    )
+    class _FailingGraph:
+        async def astream(self, state, *, stream_mode: str):
+            raise RuntimeError("boom")
+            yield {}
+
+    monkeypatch.setattr(runner, "build_graph", lambda: _FailingGraph())
 
     event_bus.create_session_queue("sess-error")
     collected: list[str] = []

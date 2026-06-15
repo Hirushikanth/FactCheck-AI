@@ -12,6 +12,10 @@ def test_settings_defaults_support_local_ollama(monkeypatch) -> None:
         "OLLAMA_CONCURRENCY",
         "SEARCH_MAX_RESULTS",
         "SEARCH_PROVIDER_ORDER",
+        "DDG_MAX_RETRIES",
+        "DDG_RETRY_BASE_DELAY",
+        "DDG_RETRY_MAX_DELAY",
+        "DDG_MIN_REQUEST_INTERVAL",
         "TAVILY_API_KEY",
         "SERPER_API_KEY",
         "DEV_STREAM_ENABLED",
@@ -31,6 +35,10 @@ def test_settings_defaults_support_local_ollama(monkeypatch) -> None:
     assert settings.ollama_concurrency == 1
     assert settings.search_max_results == 5
     assert settings.search_provider_order == "duckduckgo,tavily,serper"
+    assert settings.ddg_max_retries == 3
+    assert settings.ddg_retry_base_delay == 1.0
+    assert settings.ddg_retry_max_delay == 8.0
+    assert settings.ddg_min_request_interval == 1.5
     assert settings.tavily_api_key is None
     assert settings.serper_api_key is None
     assert settings.dev_stream_enabled is False

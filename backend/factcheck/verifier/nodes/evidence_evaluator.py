@@ -14,9 +14,9 @@ from factcheck.verifier.prompts import (
     EVIDENCE_EVALUATOR_HUMAN_PROMPT,
     EVIDENCE_EVALUATOR_SYSTEM_PROMPT,
 )
-from factcheck.verifier.schemas import IntermediateAssessment, VerifierState
+from factcheck.verifier.schemas import CachedEvaluation, IntermediateAssessment, VerifierState
 from factcheck.verifier.utils import format_evidence
-from factcheck.verifier.utils.framing import adjust_verdict_for_framing, extract_evaluation_frame
+from factcheck.verifier.utils.framing import extract_evaluation_frame
 
 
 class EvaluationOutput(BaseModel):
@@ -65,7 +65,36 @@ def _claim_result(
     }
 
 
-def _fallback_result(state: VerifierState) -> dict[str, ClaimResult | IntermediateAssessment]:
+def _to_cached(response: EvaluationOutput) -> CachedEvaluation:
+    return CachedEvaluation(
+        verdict=response.verdict,
+        confidence=response.confidence,
+        reasoning=response.reasoning,
+        needs_more_evidence=response.needs_more_evidence,
+        missing_aspects=response.missing_aspects,
+        influential_sources=response.influential_sources,
+    )
+
+
+def _fallback_result(
+    state: VerifierState,
+) -> dict[str, ClaimResult | IntermediateAssessment | CachedEvaluation]:
+    if state.cached_evaluation is not None:
+        cached = state.cached_evaluation
+        _mark_influential_sources(state, cached.influential_sources)
+        return {
+            "claim_result": _claim_result(
+                state,
+                verdict=cached.verdict,
+                confidence=cached.confidence,
+                reasoning=cached.reasoning,
+            ),
+            "intermediate_assessment": IntermediateAssessment(
+                needs_more_evidence=False,
+                missing_aspects=cached.missing_aspects,
+            ),
+        }
+
     return {
         "claim_result": _claim_result(
             state,
@@ -102,7 +131,7 @@ def _evaluation_messages(state: VerifierState) -> list[tuple[str, str]]:
 
 async def evidence_evaluator_node(
     state: VerifierState,
-) -> dict[str, ClaimResult | IntermediateAssessment | int]:
+) -> dict[str, ClaimResult | IntermediateAssessment | CachedEvaluation | int]:
     """Evaluate accumulated evidence and either finalize or request another search."""
 
     if state.claim_result is not None:
@@ -124,8 +153,10 @@ async def evidence_evaluator_node(
         needs_more_evidence=response.needs_more_evidence,
         missing_aspects=response.missing_aspects,
     )
+    cached = _to_cached(response)
     should_retry = (
-        response.verdict == "INSUFFICIENT_EVIDENCE"
+        not state.search_exhausted
+        and response.verdict == "INSUFFICIENT_EVIDENCE"
         and response.needs_more_evidence
         and state.iteration_count + 1 < state.max_iterations
     )
@@ -134,22 +165,16 @@ async def evidence_evaluator_node(
         return {
             "intermediate_assessment": intermediate,
             "iteration_count": state.iteration_count + 1,
+            "cached_evaluation": cached,
         }
-
-    verdict, confidence, reasoning = adjust_verdict_for_framing(
-        claim_text=state.claim_text,
-        verdict=response.verdict,
-        confidence=response.confidence,
-        reasoning=response.reasoning,
-        evidence=state.evidence,
-    )
 
     return {
         "claim_result": _claim_result(
             state,
-            verdict=verdict,
-            confidence=confidence,
-            reasoning=reasoning,
+            verdict=response.verdict,
+            confidence=response.confidence,
+            reasoning=response.reasoning,
         ),
         "intermediate_assessment": intermediate,
+        "cached_evaluation": cached,
     }

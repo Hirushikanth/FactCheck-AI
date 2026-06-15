@@ -2,7 +2,7 @@ from typing import get_args
 
 from factcheck.state import ClaimResult, FactCheckState, PipelineStatus, Verdict
 from factcheck.verifier import config as verifier_config
-from factcheck.verifier.schemas import EvidenceItem, IntermediateAssessment, VerifierState
+from factcheck.verifier.schemas import CachedEvaluation, EvidenceItem, IntermediateAssessment, VerifierState
 
 
 def test_pipeline_status_values_are_frozen() -> None:
@@ -52,12 +52,14 @@ def test_verifier_state_tracks_iterative_evidence_loop() -> None:
     assert state.claim_text == "The Earth is round."
     assert state.source_sentence == "The Earth is round."
     assert state.current_query is None
+    assert state.current_queries == []
     assert state.all_queries == []
     assert state.evidence == []
     assert state.iteration_count == 0
     assert state.max_iterations == verifier_config.MAX_ITERATIONS
     assert state.estimated_evidence_tokens == 0
     assert state.max_evidence_tokens == verifier_config.MAX_EVIDENCE_TOKENS
+    assert state.cached_evaluation is None
 
 
 def test_verifier_schema_marks_influential_sources_and_missing_aspects() -> None:
@@ -67,5 +69,7 @@ def test_verifier_schema_marks_influential_sources_and_missing_aspects() -> None
         missing_aspects=["independent source"],
     )
 
+    assert evidence.content_source == "snippet"
+    assert evidence.credibility_tier == "unknown"
     assert evidence.is_influential is True
     assert assessment.missing_aspects == ["independent source"]

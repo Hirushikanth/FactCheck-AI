@@ -8,7 +8,7 @@ from typing import Any, Optional
 
 from factcheck.dialogue.schemas import ConversationSummary, DialogueOutput, DialogueTurn
 from factcheck.graph.event_bus import close_session_queue, push_event
-from factcheck.graph.pipeline import run_factcheck_pipeline
+from factcheck.graph.pipeline import _initial_state, build_graph
 from factcheck.state import FactCheckState
 
 _PIPELINE_AGENTS = ("extractor", "verifier", "reporter")
@@ -27,41 +27,44 @@ async def run_factcheck_with_events(
     """Run the fact-check pipeline and emit SSE events for each stage."""
     start = started_at if started_at is not None else time.monotonic()
     current_agent = "extractor"
+    state: FactCheckState = _initial_state(session_id=session_id, text=text)
+    seen_agents: set[str] = set()
 
     try:
-        for agent in _PIPELINE_AGENTS:
-            current_agent = agent
-            await push_event(
-                session_id,
-                "agent_start",
-                {"agent": agent, "timestamp": _now_iso()},
-            )
+        graph = build_graph()
+        async for chunk in graph.astream(state, stream_mode="updates"):
+            for node_name, update in chunk.items():
+                current_agent = node_name
+                state = {**state, **update}
 
-        state = await run_factcheck_pipeline(session_id=session_id, text=text)
+                if node_name in _PIPELINE_AGENTS and node_name not in seen_agents:
+                    seen_agents.add(node_name)
+                    await push_event(
+                        session_id,
+                        "agent_start",
+                        {"agent": node_name, "timestamp": _now_iso()},
+                    )
 
-        claims = state.get("extracted_claims", [])
-        for index, claim_obj in enumerate(claims):
-            claim_text = getattr(claim_obj, "claim_text", str(claim_obj))
-            await push_event(
-                session_id,
-                "claim_found",
-                {"claim": claim_text, "index": index, "total": len(claims)},
-            )
+                if node_name == "extractor":
+                    claims = update.get("extracted_claims", [])
+                    for index, claim_obj in enumerate(claims):
+                        claim_text = getattr(claim_obj, "claim_text", str(claim_obj))
+                        await push_event(
+                            session_id,
+                            "claim_found",
+                            {
+                                "claim": claim_text,
+                                "index": index,
+                                "total": len(claims),
+                            },
+                        )
 
-        for result in state.get("claim_results", []):
-            await push_event(
-                session_id,
-                "verdict_ready",
-                {
-                    "claim": result["claim"],
-                    "verdict": result["verdict"],
-                    "confidence": result["confidence"],
-                },
-            )
-
-        final_report = state.get("final_report")
-        if final_report:
-            await push_event(session_id, "report_ready", {"final_report": final_report})
+                if node_name == "reporter" and update.get("final_report"):
+                    await push_event(
+                        session_id,
+                        "report_ready",
+                        {"final_report": update["final_report"]},
+                    )
 
         duration = time.monotonic() - start
         await push_event(

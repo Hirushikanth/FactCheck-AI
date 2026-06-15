@@ -11,7 +11,6 @@ from pydantic import BaseModel, Field, field_validator
 from factcheck.extractor.config import DECOMPOSITION_CONFIG
 from factcheck.extractor.prompts import DECOMPOSITION_SYSTEM_PROMPT, HUMAN_PROMPT
 from factcheck.extractor.schemas import DisambiguatedContent, ExtractorState, PotentialClaim
-from factcheck.extractor.utils.text import remove_following_sentences
 from factcheck.llm.factory import get_extractor_llm
 from factcheck.llm.structured import call_llm_with_structured_output
 
@@ -38,8 +37,7 @@ class DecompositionOutput(BaseModel):
 
 async def _decomposition_stage(item: DisambiguatedContent) -> list[PotentialClaim]:
     sentence = item.disambiguated_sentence
-    original_context = item.original_selected_item.original_context_item.context_for_llm
-    context = remove_following_sentences(original_context)
+    context = item.original_selected_item.preceding_context_item.context_for_llm
     llm = get_extractor_llm(temperature=DECOMPOSITION_CONFIG["temperature"])
 
     response = await call_llm_with_structured_output(

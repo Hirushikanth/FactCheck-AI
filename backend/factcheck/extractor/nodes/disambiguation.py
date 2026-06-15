@@ -10,7 +10,6 @@ from pydantic import BaseModel, Field, field_validator
 from factcheck.extractor.config import DISAMBIGUATION_CONFIG
 from factcheck.extractor.prompts import DISAMBIGUATION_SYSTEM_PROMPT, HUMAN_PROMPT
 from factcheck.extractor.schemas import DisambiguatedContent, ExtractorState, SelectedContent
-from factcheck.extractor.utils.text import remove_following_sentences
 from factcheck.extractor.utils.voting import process_with_voting
 from factcheck.llm.factory import get_extractor_llm
 from factcheck.llm.structured import call_llm_with_structured_output
@@ -39,7 +38,7 @@ class DisambiguationOutput(BaseModel):
 _CONTEXTUAL_REFERENCE_PATTERN = re.compile(
     r"\b("
     r"he|she|it|they|them|his|her|hers|its|their|theirs|"
-    r"this|that|these|those|here|there|then|"
+    r"this|that|these|those|then|"
     r"today|yesterday|tomorrow|"
     r"last\s+(?:year|month|week|winter|summer|spring|fall|autumn)|"
     r"next\s+(?:year|month|week|winter|summer|spring|fall|autumn)|"
@@ -48,11 +47,32 @@ _CONTEXTUAL_REFERENCE_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
+_LOCATIVE_THERE_PATTERN = re.compile(
+    r"\bthere\b(?!\s+(?:is|are|was|were|will|would|has|have|had|"
+    r"might|could|should|must|may|can|shall|be|been|being))",
+    re.IGNORECASE,
+)
+
+_LOCATIVE_HERE_PATTERN = re.compile(
+    r"\bhere\b(?!\s*[,])",
+    re.IGNORECASE,
+)
+
 
 def _needs_contextual_disambiguation(sentence: str) -> bool:
-    """Return whether a sentence has obvious references needing context."""
+    """Return whether a sentence has obvious references needing context.
 
-    return bool(_CONTEXTUAL_REFERENCE_PATTERN.search(sentence))
+    Checks pronouns, demonstratives, temporal references, and locative uses of
+    ``there``/``here`` while skipping existential ``there is/are`` and discourse
+    ``here,`` openers common in factual text.
+    """
+    if _CONTEXTUAL_REFERENCE_PATTERN.search(sentence):
+        return True
+    if _LOCATIVE_THERE_PATTERN.search(sentence):
+        return True
+    if _LOCATIVE_HERE_PATTERN.search(sentence):
+        return True
+    return False
 
 
 async def _single_disambiguation_attempt(
@@ -63,7 +83,7 @@ async def _single_disambiguation_attempt(
     if not _needs_contextual_disambiguation(sentence):
         return True, sentence.strip()
 
-    context = remove_following_sentences(selected_item.original_context_item.context_for_llm)
+    context = selected_item.preceding_context_item.context_for_llm
     response = await call_llm_with_structured_output(
         llm=llm,
         output_class=DisambiguationOutput,

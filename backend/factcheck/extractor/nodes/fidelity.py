@@ -10,7 +10,12 @@ from pydantic import BaseModel, Field, field_validator
 from factcheck.extractor.config import FIDELITY_CONFIG
 from factcheck.extractor.prompts import FIDELITY_HUMAN_PROMPT, FIDELITY_SYSTEM_PROMPT
 from factcheck.extractor.schemas import DisambiguatedContent, ExtractorState, PotentialClaim
-from factcheck.extractor.utils.fidelity import FidelityDecision, assess_claim_fidelity
+from factcheck.extractor.utils.fidelity import (
+    CoverageDecision,
+    FidelityDecision,
+    assess_claim_fidelity,
+    assess_group_coverage,
+)
 from factcheck.llm.factory import get_extractor_llm
 from factcheck.llm.structured import call_llm_with_structured_output
 
@@ -141,9 +146,24 @@ async def fidelity_node(state: ExtractorState) -> dict[str, list[PotentialClaim]
     output: list[PotentialClaim] = []
     for claims in grouped.values():
         faithful = await _faithful_claims_for_group(claims)
-        if faithful:
-            output.extend(faithful)
-        else:
+        if not faithful:
             output.append(_fallback_claim_from_potential(claims[0]))
+            continue
+
+        coverage = assess_group_coverage(
+            source_sentence=claims[0].disambiguated_sentence,
+            claim_texts=[claim.claim_text for claim in faithful],
+        )
+        if coverage.decision == CoverageDecision.INCOMPLETE:
+            logger.warning(
+                "decomposition_incomplete: original_index=%s — %s (uncovered: %s)",
+                claims[0].original_index,
+                coverage.reason,
+                list(coverage.uncovered_segments),
+            )
+            output.append(_fallback_claim_from_potential(claims[0]))
+            continue
+
+        output.extend(faithful)
 
     return {"potential_claims": _dedupe_claims(output)}

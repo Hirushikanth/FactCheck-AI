@@ -5,7 +5,13 @@ from factcheck.extractor.nodes import fidelity, validation
 from factcheck.extractor.nodes.fidelity import FidelityAuditOutput, fidelity_node
 from factcheck.extractor.nodes.validation import ValidationOutput, validation_node
 from factcheck.extractor.schemas import ExtractorState, PotentialClaim
-from factcheck.extractor.utils.fidelity import FidelityDecision, assess_claim_fidelity
+from factcheck.extractor.utils.fidelity import (
+    CoverageDecision,
+    FidelityDecision,
+    _drops_scoped_negation,
+    assess_claim_fidelity,
+    assess_group_coverage,
+)
 from factcheck.verifier.nodes.evidence_evaluator import _evaluation_messages
 from factcheck.verifier.nodes.query_generator import _query_messages
 from factcheck.verifier.schemas import EvidenceItem, VerifierState
@@ -32,6 +38,9 @@ def test_decomposition_prompt_requires_compound_but_splits_and_framing() -> None
     assert "but" in prompt.casefold()
     assert "Bananas are berries [according to botanical definitions of fruits]" in prompt
     assert "Strawberries are not berries [according to botanical definitions of fruits]" in prompt
+    assert "temporal or causal subordinate clause" in prompt.casefold()
+    assert "The French Revolution began in 1815 after Napoleon's defeat." in prompt
+    assert "Incorrect extraction: [\"Napoleon was defeated\"]" in prompt
 
 
 def test_extractor_prompts_explicitly_forbid_truth_correction() -> None:
@@ -64,9 +73,38 @@ def test_programmatic_fidelity_preserves_dangerous_false_claims() -> None:
     assert result.decision == FidelityDecision.PASS
 
 
+def test_programmatic_fidelity_allows_tense_normalization() -> None:
+    result = assess_claim_fidelity(
+        claim_text="Jane runs the firm.",
+        source_sentence="Jane was running the firm.",
+    )
+
+    assert result.decision == FidelityDecision.PASS
+
+
+def test_programmatic_fidelity_allows_plural_to_singular_normalization() -> None:
+    result = assess_claim_fidelity(
+        claim_text="The pyramid was built by aliens.",
+        source_sentence="The pyramids were built by aliens.",
+    )
+
+    assert result.decision == FidelityDecision.PASS
+
+
 _BERRIES_SOURCE = (
     "Bananas are berries, but strawberries are not, "
     "according to the botanical definitions of fruits."
+)
+
+_NAPOLEON_SOURCE = "The French Revolution began in 1815 after Napoleon's defeat."
+
+_ADA_BABBAGE_SOURCE = (
+    "Ada Lovelace wrote notes about the Analytical Engine "
+    "and Charles Babbage designed it."
+)
+
+_BURIED_CLAIM_SOURCE = (
+    "John's notable research on neural networks demonstrates the power of innovation."
 )
 
 
@@ -96,6 +134,48 @@ def test_programmatic_fidelity_rejects_negation_drop_on_same_entity() -> None:
 
     assert result.decision == FidelityDecision.FAIL
     assert "negation" in result.reason.casefold()
+
+
+_MULTI_NEGATION_SOURCE = (
+    "Strawberries are not berries and blueberries are not berries."
+)
+
+
+def test_programmatic_fidelity_rejects_partial_multi_negation_drop() -> None:
+    result = assess_claim_fidelity(
+        claim_text="Strawberries are not berries and blueberries are berries.",
+        source_sentence=_MULTI_NEGATION_SOURCE,
+    )
+
+    assert result.decision == FidelityDecision.FAIL
+    assert "negation" in result.reason.casefold()
+
+
+def test_programmatic_fidelity_allows_full_multi_negation_preserved() -> None:
+    result = assess_claim_fidelity(
+        claim_text="Strawberries are not berries and blueberries are not berries.",
+        source_sentence=_MULTI_NEGATION_SOURCE,
+    )
+
+    assert result.decision == FidelityDecision.PASS
+
+
+def test_programmatic_fidelity_allows_partial_multi_negation_conjunct() -> None:
+    result = assess_claim_fidelity(
+        claim_text="Strawberries are not berries.",
+        source_sentence=_MULTI_NEGATION_SOURCE,
+    )
+
+    assert result.decision == FidelityDecision.PASS
+
+
+def test_drops_scoped_negation_allows_negated_subject_in_multi_source() -> None:
+    dropped = _drops_scoped_negation(
+        "Strawberries are not berries.",
+        "Neither strawberries nor blueberries are berries.",
+    )
+
+    assert dropped == set()
 
 
 async def test_fidelity_node_preserves_both_compound_conjuncts(monkeypatch) -> None:
@@ -139,6 +219,101 @@ def test_programmatic_fidelity_allows_legitimate_atomic_splits() -> None:
 
     assert first.decision == FidelityDecision.PASS
     assert second.decision == FidelityDecision.PASS
+
+
+def test_group_coverage_marks_napoleon_subset_incomplete() -> None:
+    result = assess_group_coverage(
+        source_sentence=_NAPOLEON_SOURCE,
+        claim_texts=["Napoleon was defeated"],
+    )
+
+    assert result.decision == CoverageDecision.INCOMPLETE
+    assert result.uncovered_segments
+
+
+def test_group_coverage_accepts_full_napoleon_split() -> None:
+    result = assess_group_coverage(
+        source_sentence=_NAPOLEON_SOURCE,
+        claim_texts=[
+            "The French Revolution began in 1815",
+            "Napoleon was defeated",
+        ],
+    )
+
+    assert result.decision == CoverageDecision.COMPLETE
+
+
+def test_group_coverage_accepts_berries_compound() -> None:
+    result = assess_group_coverage(
+        source_sentence=_BERRIES_SOURCE,
+        claim_texts=[
+            "Bananas are berries [according to botanical definitions of fruits]",
+            "Strawberries are not berries [according to botanical definitions of fruits]",
+        ],
+    )
+
+    assert result.decision == CoverageDecision.COMPLETE
+
+
+def test_group_coverage_accepts_ada_babbage_split() -> None:
+    result = assess_group_coverage(
+        source_sentence=_ADA_BABBAGE_SOURCE,
+        claim_texts=[
+            "Ada Lovelace wrote notes about the Analytical Engine.",
+            "Charles Babbage designed the Analytical Engine.",
+        ],
+    )
+
+    assert result.decision == CoverageDecision.COMPLETE
+
+
+def test_group_coverage_marks_ada_babbage_single_claim_incomplete() -> None:
+    result = assess_group_coverage(
+        source_sentence=_ADA_BABBAGE_SOURCE,
+        claim_texts=["Ada Lovelace wrote notes about the Analytical Engine."],
+    )
+
+    assert result.decision == CoverageDecision.INCOMPLETE
+
+
+def test_group_coverage_leaves_simple_false_claim_complete() -> None:
+    result = assess_group_coverage(
+        source_sentence="Drinking bleach cures COVID-19.",
+        claim_texts=["Drinking bleach cures COVID-19."],
+    )
+
+    assert result.decision == CoverageDecision.COMPLETE
+
+
+def test_group_coverage_leaves_buried_claim_partial_extraction_complete() -> None:
+    result = assess_group_coverage(
+        source_sentence=_BURIED_CLAIM_SOURCE,
+        claim_texts=["John has research on neural networks."],
+    )
+
+    assert result.decision == CoverageDecision.COMPLETE
+
+
+async def test_fidelity_node_falls_back_on_incomplete_group_coverage(monkeypatch) -> None:
+    async def fail_if_called(*args, **kwargs):
+        raise AssertionError("LLM audit should not run for faithful incomplete decomposition")
+
+    monkeypatch.setattr(fidelity, "_audit_claim_fidelity", fail_if_called)
+    state = ExtractorState(
+        raw_input=_NAPOLEON_SOURCE,
+        potential_claims=[
+            _potential_claim(
+                "Napoleon was defeated",
+                disambiguated_sentence=_NAPOLEON_SOURCE,
+                original_sentence=_NAPOLEON_SOURCE,
+            )
+        ],
+    )
+
+    result = await fidelity_node(state)
+
+    assert [claim.claim_text for claim in result["potential_claims"]] == [_NAPOLEON_SOURCE]
+    assert result["potential_claims"][0].fidelity_status == "fallback"
 
 
 def test_programmatic_fidelity_marks_contextual_additions_borderline() -> None:

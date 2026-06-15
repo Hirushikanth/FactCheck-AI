@@ -8,7 +8,12 @@ from pydantic import BaseModel, Field
 
 from factcheck.llm.factory import get_verifier_llm
 from factcheck.llm.structured import call_llm_with_structured_output
-from factcheck.verifier.config import QUERY_GEN_NUM_CTX, QUERY_GEN_TEMPERATURE, QUERIES_PER_ITERATION
+from factcheck.verifier.config import (
+    MAX_SEARCH_QUERIES,
+    QUERY_GEN_NUM_CTX,
+    QUERY_GEN_TEMPERATURE,
+    QUERIES_PER_ITERATION,
+)
 from factcheck.verifier.prompts import (
     QUERY_GENERATOR_INITIAL_HUMAN_PROMPT,
     QUERY_GENERATOR_INITIAL_SYSTEM_PROMPT,
@@ -61,7 +66,27 @@ def _keyword_query(text: str) -> str:
     return " ".join(tokens)
 
 
-def _clean_query(queries: list[str], claim: str, previous_queries: list[str]) -> str | None:
+def _aspect_fallback_queries(
+    normalized_claim: str,
+    missing_aspects: list[str] | None,
+) -> list[str]:
+    candidates: list[str] = []
+    for aspect in missing_aspects or []:
+        aspect_kw = _keyword_query(aspect)
+        if aspect_kw:
+            candidates.append(f"{aspect_kw} {normalized_claim}".strip())
+            candidates.append(aspect_kw)
+    return candidates
+
+
+def _clean_queries(
+    queries: list[str],
+    claim: str,
+    previous_queries: list[str],
+    *,
+    max_queries: int,
+    missing_aspects: list[str] | None = None,
+) -> list[str]:
     cleaned: list[str] = []
     seen: set[str] = {query.casefold() for query in previous_queries}
     normalized_claim = " ".join(claim.strip().rstrip(".?!").split())
@@ -72,23 +97,24 @@ def _clean_query(queries: list[str], claim: str, previous_queries: list[str]) ->
             continue
         seen.add(key)
         cleaned.append(normalized)
-        if len(cleaned) >= QUERIES_PER_ITERATION:
+        if len(cleaned) >= max_queries:
             break
 
-    for expanded in (
+    fallback_candidates = [
         _keyword_query(normalized_claim),
         f"{normalized_claim} fact check".strip(),
         normalized_claim or claim,
-    ):
-        if not cleaned:
-            key = expanded.casefold()
-            if expanded and key not in seen:
-                seen.add(key)
-                cleaned.append(expanded)
-            if len(cleaned) >= QUERIES_PER_ITERATION:
-                break
+        *_aspect_fallback_queries(normalized_claim, missing_aspects),
+    ]
+    for expanded in fallback_candidates:
+        if len(cleaned) >= max_queries:
+            break
+        key = expanded.casefold()
+        if expanded and key not in seen:
+            seen.add(key)
+            cleaned.append(expanded)
 
-    return cleaned[0] if cleaned else None
+    return cleaned
 
 
 def _iterative_missing_aspects(state: VerifierState) -> list[str]:
@@ -127,11 +153,33 @@ def _query_messages(state: VerifierState) -> list[tuple[str, str]]:
     ]
 
 
-async def query_generator_node(state: VerifierState) -> dict[str, str | list[str] | None]:
+def _max_queries_for_iteration(state: VerifierState) -> int:
+    remaining = MAX_SEARCH_QUERIES - len(state.all_queries)
+    if remaining <= 0:
+        return 0
+    per_iteration = QUERIES_PER_ITERATION if state.iteration_count <= 0 else 1
+    return min(per_iteration, remaining)
+
+
+async def query_generator_node(
+    state: VerifierState,
+) -> dict[str, str | list[str] | bool | None]:
     """Generate targeted search queries for one claim."""
 
     if state.claim_result is not None:
-        return {"current_query": state.current_query, "all_queries": state.all_queries}
+        return {
+            "current_query": state.current_query,
+            "current_queries": state.current_queries,
+            "all_queries": state.all_queries,
+        }
+
+    max_queries = _max_queries_for_iteration(state)
+    if max_queries <= 0:
+        return {
+            "current_query": None,
+            "current_queries": [],
+            "search_exhausted": True,
+        }
 
     llm = get_verifier_llm(temperature=QUERY_GEN_TEMPERATURE, num_ctx=QUERY_GEN_NUM_CTX)
     response = await call_llm_with_structured_output(
@@ -141,11 +189,41 @@ async def query_generator_node(state: VerifierState) -> dict[str, str | list[str
         context_desc=f"query generation for '{state.claim_text}'",
     )
 
-    query = _clean_query(response.queries if response else [], state.claim_text, state.all_queries)
-    if query is None:
-        return {"current_query": None}
+    missing_aspects = _iterative_missing_aspects(state) if state.iteration_count > 0 else None
+    queries = _clean_queries(
+        response.queries if response else [],
+        state.claim_text,
+        state.all_queries,
+        max_queries=max_queries,
+        missing_aspects=missing_aspects,
+    )
+    if not queries:
+        return {
+            "current_query": None,
+            "current_queries": [],
+            "search_exhausted": True,
+        }
 
     return {
-        "current_query": query,
-        "all_queries": state.all_queries + [query],
+        "current_query": queries[0],
+        "current_queries": queries,
+        "all_queries": state.all_queries + queries,
+        "search_exhausted": False,
     }
+
+
+# Backward-compatible alias for tests importing _clean_query
+def _clean_query(
+    queries: list[str],
+    claim: str,
+    previous_queries: list[str],
+    missing_aspects: list[str] | None = None,
+) -> str | None:
+    cleaned = _clean_queries(
+        queries,
+        claim,
+        previous_queries,
+        max_queries=1,
+        missing_aspects=missing_aspects,
+    )
+    return cleaned[0] if cleaned else None

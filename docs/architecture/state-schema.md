@@ -1,6 +1,6 @@
 # Shared State Schema
 
-The shared state schema is the Phase 1 contract between all future agents. After Phase 1, changes to this contract require a documented schema version update and review of every agent that reads or writes the changed field.
+The shared state schema is the contract between all implemented agents. Changes to this schema require review of every agent, API model, and frontend type that reads or writes the affected field.
 
 ## PipelineStatus
 
@@ -18,10 +18,12 @@ The shared state schema is the Phase 1 contract between all future agents. After
 | `claim` | `str` | Exact extracted claim text. |
 | `verdict` | `SUPPORTED | REFUTED | INSUFFICIENT_EVIDENCE | CONFLICTING_EVIDENCE` | Verdict based on retrieved evidence. |
 | `confidence` | `float` | Normalized confidence score from `0.0` to `1.0`. |
-| `evidence` | `list[str]` | Evidence snippets given to the verifier. |
-| `sources` | `list[str]` | Source URLs corresponding to evidence snippets. |
+| `evidence` | `list[str]` | Evidence text excerpts presented to the verifier. Internally sourced from full-page HTTP fetches (top-ranked hits) or search-result snippets (fallback). |
+| `sources` | `list[str]` | Source URLs corresponding to evidence excerpts. |
 | `reasoning` | `str` | Explanation connecting evidence to verdict. |
 | `search_queries` | `list[str]` | Exact web search queries issued for the claim. |
+
+Evidence hit pre-filtering uses Okapi BM25 re-ranking over each search result set before the evaluator LLM is invoked. Source credibility uses static domain-tier heuristics (high/medium/low) applied during hit re-ranking and exposed to the evaluator; this is not a full reputation database.
 
 ## FactCheckState
 
@@ -29,7 +31,7 @@ The shared state schema is the Phase 1 contract between all future agents. After
 |---|---|---|---|
 | `raw_input` | `str` | User Input | Original user-submitted text. |
 | `extracted_claims` | `list[ValidatedClaim]` | Extractor | Atomic, self-contained factual claims with original sentence context. |
-| `claim_results` | `list[ClaimResult]` | Verifier | One result per extracted claim, populated incrementally. |
+| `claim_results` | `list[ClaimResult]` | Verifier | One result per extracted claim, populated in a single parallel verifier invocation (order matches `extracted_claims`). |
 | `final_report` | `str | None` | Reporter | Final markdown report. |
 | `messages` | `Annotated[list[BaseMessage], add_messages]` | Dialogue + User | Conversation history with append semantics. |
 | `current_agent` | `str` | Orchestrator | Identifier of the active agent. |

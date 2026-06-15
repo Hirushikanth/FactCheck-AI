@@ -3,13 +3,17 @@
 from __future__ import annotations
 
 from operator import add
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from factcheck.search.models import SearchHit
-from factcheck.state import ClaimResult
+from factcheck.state import ClaimResult, Verdict
 from factcheck.verifier.config import MAX_EVIDENCE_TOKENS, MAX_ITERATIONS
+
+
+ContentSource = Literal["fetched", "snippet"]
+CredibilityTier = Literal["high", "medium", "low", "unknown"]
 
 
 class EvidenceItem(BaseModel):
@@ -18,6 +22,8 @@ class EvidenceItem(BaseModel):
     url: str
     title: str = ""
     snippet: str
+    content_source: ContentSource = "snippet"
+    credibility_tier: CredibilityTier = "unknown"
     relevance_score: float = 0.0
     is_influential: bool = False
 
@@ -27,6 +33,17 @@ class IntermediateAssessment(BaseModel):
 
     needs_more_evidence: bool = False
     missing_aspects: list[str] = Field(default_factory=list)
+
+
+class CachedEvaluation(BaseModel):
+    """Last successful evaluator output, retained across iterations for fallback."""
+
+    verdict: Verdict
+    confidence: float = Field(ge=0.0, le=1.0)
+    reasoning: str
+    needs_more_evidence: bool = False
+    missing_aspects: list[str] = Field(default_factory=list)
+    influential_sources: list[int] = Field(default_factory=list)
 
 
 class VerifierState(BaseModel):
@@ -40,6 +57,7 @@ class VerifierState(BaseModel):
     original_index: int | None = None
     fidelity_status: str | None = None
     current_query: str | None = None
+    current_queries: list[str] = Field(default_factory=list)
     all_queries: list[str] = Field(default_factory=list)
     evidence: Annotated[list[EvidenceItem], add] = Field(default_factory=list)
     iteration_count: int = 0
@@ -50,6 +68,8 @@ class VerifierState(BaseModel):
     raw_hits: list[SearchHit] = Field(default_factory=list)
     ranked_evidence: list[EvidenceItem] = Field(default_factory=list)
     claim_result: ClaimResult | None = None
+    cached_evaluation: CachedEvaluation | None = None
+    search_exhausted: bool = False
 
     @model_validator(mode="after")
     def _default_source_sentence(self) -> VerifierState:

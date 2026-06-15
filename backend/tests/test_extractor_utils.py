@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import asyncio
+
 from pydantic import BaseModel
 
-from factcheck.extractor.utils.text import remove_following_sentences
 from factcheck.extractor.utils.voting import process_with_voting
 from factcheck.llm.structured import call_llm_with_structured_output
 
@@ -85,28 +86,6 @@ class StructuredNonePlainJsonLlm:
         return '{"value": "plain-json"}'
 
 
-def test_remove_following_sentences_strips_following_context() -> None:
-    context = "\n".join(
-        [
-            "[Preceding Sentences:]",
-            "Earlier context.",
-            "[Sentence of Interest for current task:]",
-            "The claim sentence.",
-            "[Following Sentences:]",
-            "Later context.",
-        ]
-    )
-
-    assert remove_following_sentences(context) == "\n".join(
-        [
-            "[Preceding Sentences:]",
-            "Earlier context.",
-            "[Sentence of Interest for current task:]",
-            "The claim sentence.",
-        ]
-    )
-
-
 async def test_process_with_voting_requires_minimum_successes() -> None:
     attempts = iter([(True, "first"), (False, None), (True, "second")])
 
@@ -122,7 +101,108 @@ async def test_process_with_voting_requires_minimum_successes() -> None:
         result_factory=lambda value, item: f"{item}:{value}",
     )
 
-    assert results == ["sentence:first"]
+    assert results == []
+
+
+async def test_process_with_voting_picks_majority_not_first() -> None:
+    call_count = 0
+
+    async def processor(item, llm):
+        nonlocal call_count
+        call_count += 1
+        values = ["wrong", "right", "right"]
+        return True, values[call_count - 1]
+
+    results = await process_with_voting(
+        items=["sentence"],
+        processor=processor,
+        llm=object(),
+        completions=3,
+        min_successes=2,
+        result_factory=lambda value, item: f"{item}:{value}",
+    )
+
+    assert results == ["sentence:right"]
+    assert call_count == 3
+
+
+async def test_process_with_voting_normalizes_equivalent_strings() -> None:
+    attempts = iter([(True, "Hello."), (True, "hello"), (True, "HELLO")])
+
+    async def processor(item, llm):
+        return next(attempts)
+
+    results = await process_with_voting(
+        items=["sentence"],
+        processor=processor,
+        llm=object(),
+        completions=3,
+        min_successes=2,
+        result_factory=lambda value, item: f"{item}:{value}",
+    )
+
+    assert results == ["sentence:Hello."]
+
+
+async def test_process_with_voting_rejects_split_votes() -> None:
+    attempts = iter([(True, "A"), (True, "B"), (True, "C")])
+
+    async def processor(item, llm):
+        return next(attempts)
+
+    results = await process_with_voting(
+        items=["sentence"],
+        processor=processor,
+        llm=object(),
+        completions=3,
+        min_successes=2,
+        result_factory=lambda value, item: f"{item}:{value}",
+    )
+
+    assert results == []
+
+
+async def test_process_with_voting_parallelizes_items() -> None:
+    gate = asyncio.Event()
+    in_flight = 0
+    max_in_flight = 0
+    lock = asyncio.Lock()
+
+    async def processor(item, llm):
+        nonlocal in_flight, max_in_flight
+        async with lock:
+            in_flight += 1
+            max_in_flight = max(max_in_flight, in_flight)
+        await gate.wait()
+        async with lock:
+            in_flight -= 1
+        return True, item
+
+    task = asyncio.create_task(
+        process_with_voting(
+            items=["a", "b", "c"],
+            processor=processor,
+            llm=object(),
+            completions=1,
+            min_successes=1,
+            result_factory=lambda value, item: value,
+        )
+    )
+
+    for _ in range(50):
+        await asyncio.sleep(0)
+        if max_in_flight >= 2:
+            break
+    else:
+        gate.set()
+        await task
+        raise AssertionError("expected multiple items to run concurrently")
+
+    gate.set()
+    results = await task
+
+    assert sorted(results) == ["a", "b", "c"]
+    assert max_in_flight >= 2
 
 
 async def test_structured_llm_helper_returns_parsed_model() -> None:

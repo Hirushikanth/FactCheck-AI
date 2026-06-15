@@ -73,12 +73,12 @@ async def test_verifier_graph_retries_when_evaluator_requests_more_evidence(monk
     ]
 
 
-async def test_verifier_graph_exits_when_no_query_is_generated(monkeypatch) -> None:
+async def test_verifier_graph_routes_to_evaluator_when_no_query_is_generated(monkeypatch) -> None:
     calls: list[str] = []
 
     async def query_generator_node(state):
         calls.append("query_generator")
-        return {"current_query": None}
+        return {"current_query": None, "search_exhausted": True}
 
     async def retriever_node(state):
         calls.append("retriever")
@@ -86,7 +86,17 @@ async def test_verifier_graph_exits_when_no_query_is_generated(monkeypatch) -> N
 
     async def evidence_evaluator_node(state):
         calls.append("evidence_evaluator")
-        return {}
+        return {
+            "claim_result": {
+                "claim": state.claim_text,
+                "verdict": "INSUFFICIENT_EVIDENCE",
+                "confidence": 0.0,
+                "evidence": [],
+                "sources": [],
+                "reasoning": "No search query could be generated.",
+                "search_queries": state.all_queries,
+            }
+        }
 
     monkeypatch.setattr(verifier_graph, "query_generator_node", query_generator_node)
     monkeypatch.setattr(verifier_graph, "retriever_node", retriever_node)
@@ -95,8 +105,74 @@ async def test_verifier_graph_exits_when_no_query_is_generated(monkeypatch) -> N
     graph = build_verifier_graph()
     result = await graph.ainvoke(VerifierState(claim_text="No searchable query."))
 
-    assert calls == ["query_generator"]
-    assert result.get("claim_result") is None
+    assert calls == ["query_generator", "evidence_evaluator"]
+    assert result["claim_result"]["verdict"] == "INSUFFICIENT_EVIDENCE"
+
+
+async def test_verifier_graph_routes_to_evaluator_on_duplicate_query(monkeypatch) -> None:
+    calls: list[str] = []
+
+    async def query_generator_node(state):
+        calls.append("query_generator")
+        if state.iteration_count == 0:
+            return {
+                "current_query": "earth shape",
+                "all_queries": state.all_queries + ["earth shape"],
+            }
+        return {"current_query": None, "search_exhausted": True}
+
+    async def retriever_node(state):
+        calls.append("retriever")
+        return {
+            "evidence": [
+                EvidenceItem(
+                    url="https://example.com/earth",
+                    title="Earth shape",
+                    snippet="Earth is an oblate spheroid.",
+                    relevance_score=0.95,
+                )
+            ],
+            "estimated_evidence_tokens": state.estimated_evidence_tokens + 8,
+        }
+
+    async def evidence_evaluator_node(state):
+        calls.append("evidence_evaluator")
+        if state.iteration_count == 0:
+            return {
+                "intermediate_assessment": IntermediateAssessment(
+                    needs_more_evidence=True,
+                    missing_aspects=["official source"],
+                ),
+                "iteration_count": 1,
+            }
+        return {
+            "claim_result": {
+                "claim": state.claim_text,
+                "verdict": "SUPPORTED",
+                "confidence": 0.85,
+                "evidence": [item.snippet for item in state.evidence],
+                "sources": [item.url for item in state.evidence],
+                "reasoning": "Existing evidence supports the claim.",
+                "search_queries": state.all_queries,
+            }
+        }
+
+    monkeypatch.setattr(verifier_graph, "query_generator_node", query_generator_node)
+    monkeypatch.setattr(verifier_graph, "retriever_node", retriever_node)
+    monkeypatch.setattr(verifier_graph, "evidence_evaluator_node", evidence_evaluator_node)
+
+    graph = build_verifier_graph()
+    result = await graph.ainvoke(VerifierState(claim_text="The Earth is an oblate spheroid."))
+
+    assert calls == [
+        "query_generator",
+        "retriever",
+        "evidence_evaluator",
+        "query_generator",
+        "evidence_evaluator",
+    ]
+    assert result["claim_result"]["verdict"] == "SUPPORTED"
+    assert result["claim_result"]["search_queries"] == ["earth shape"]
 
 
 async def test_run_verifier_returns_claim_result(monkeypatch) -> None:

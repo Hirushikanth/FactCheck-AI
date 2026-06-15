@@ -8,7 +8,12 @@ from factcheck.state import FactCheckState
 
 
 def _unique_claims(claims: list[ValidatedClaim]) -> list[ValidatedClaim]:
-    """Dedupe claims case-insensitively while preserving first-seen order."""
+    """Dedupe claims case-insensitively while preserving first-seen order.
+
+    This is a safety-net deduplication layer. Primary deduplication occurs in
+    validation_node. This catches edge cases where duplicates survive validation
+    (e.g., after fidelity fallbacks produce identical text for multiple sources).
+    """
 
     unique: list[ValidatedClaim] = []
     seen: set[str] = set()
