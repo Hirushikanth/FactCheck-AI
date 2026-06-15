@@ -202,11 +202,12 @@ async def _sentence_splitter_and_context_creator(
 async def sentence_splitter_node(state: ExtractorState) -> dict[str, list[ContextualSentence]]:
     """Split raw input into per-stage contextual sentences.
 
-    Selection receives bidirectional windows; disambiguation and decomposition
-    receive preceding-only windows built from their own config entries.
+    Selection receives bidirectional windows. Disambiguation and decomposition
+    both consume ``preceding_context_sentences``, built from the shared
+    preceding-only window config.
     """
     selection_window = CONTEXT_WINDOWS["selection"]
-    preceding_window = CONTEXT_WINDOWS["disambiguation"]
+    preceding_window = CONTEXT_WINDOWS["preceding_only"]
 
     contextual_sentences = await _sentence_splitter_and_context_creator(
         state.raw_input,

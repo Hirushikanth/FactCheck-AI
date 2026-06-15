@@ -8,6 +8,7 @@ from factcheck.extractor.schemas import ExtractorState, PotentialClaim
 from factcheck.extractor.utils.fidelity import (
     CoverageDecision,
     FidelityDecision,
+    _drops_scoped_negation,
     assess_claim_fidelity,
     assess_group_coverage,
 )
@@ -133,6 +134,48 @@ def test_programmatic_fidelity_rejects_negation_drop_on_same_entity() -> None:
 
     assert result.decision == FidelityDecision.FAIL
     assert "negation" in result.reason.casefold()
+
+
+_MULTI_NEGATION_SOURCE = (
+    "Strawberries are not berries and blueberries are not berries."
+)
+
+
+def test_programmatic_fidelity_rejects_partial_multi_negation_drop() -> None:
+    result = assess_claim_fidelity(
+        claim_text="Strawberries are not berries and blueberries are berries.",
+        source_sentence=_MULTI_NEGATION_SOURCE,
+    )
+
+    assert result.decision == FidelityDecision.FAIL
+    assert "negation" in result.reason.casefold()
+
+
+def test_programmatic_fidelity_allows_full_multi_negation_preserved() -> None:
+    result = assess_claim_fidelity(
+        claim_text="Strawberries are not berries and blueberries are not berries.",
+        source_sentence=_MULTI_NEGATION_SOURCE,
+    )
+
+    assert result.decision == FidelityDecision.PASS
+
+
+def test_programmatic_fidelity_allows_partial_multi_negation_conjunct() -> None:
+    result = assess_claim_fidelity(
+        claim_text="Strawberries are not berries.",
+        source_sentence=_MULTI_NEGATION_SOURCE,
+    )
+
+    assert result.decision == FidelityDecision.PASS
+
+
+def test_drops_scoped_negation_allows_negated_subject_in_multi_source() -> None:
+    dropped = _drops_scoped_negation(
+        "Strawberries are not berries.",
+        "Neither strawberries nor blueberries are berries.",
+    )
+
+    assert dropped == set()
 
 
 async def test_fidelity_node_preserves_both_compound_conjuncts(monkeypatch) -> None:

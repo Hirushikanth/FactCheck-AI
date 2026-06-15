@@ -113,7 +113,7 @@ _STOPWORDS = {
     "would",
 }
 
-_NEGATIONS = {"no", "not", "never", "none", "without"}
+_NEGATIONS = {"no", "not", "never", "none", "without", "neither", "nor"}
 
 _SUBORDINATOR_RE = re.compile(
     r"\b(after|before|when|while|because|since|although|though)\b",
@@ -229,57 +229,76 @@ def _overlap_ratio(claim_terms: set[str], allowed_forms: set[str]) -> float:
     return covered / len(claim_terms)
 
 
-def _scope_overlaps_claim(scope: set[str], claim_terms: set[str]) -> bool:
-    for scope_token in scope:
-        scope_forms = _morphological_forms(scope_token)
-        for claim_token in claim_terms:
-            if scope_forms & _morphological_forms(claim_token):
-                return True
-    return False
-
-
 def _ordered_tokens(text: str) -> list[str]:
     return [_normalize_token(token) for token in _TOKEN_RE.findall(text)]
 
 
-def _negation_scopes(source_sentence: str) -> list[set[str]]:
-    """Content-token scopes immediately before each negation in the source."""
+def _negation_subject_pairs(sentence: str) -> list[tuple[str, str]]:
+    """Extract (negation_word, subject_scope) pairs from a sentence.
 
-    tokens = _ordered_tokens(source_sentence)
-    scopes: list[set[str]] = []
-    for index, token in enumerate(tokens):
+    For "Strawberries are not berries":
+    Returns [("not", "strawberries")]
+
+    For "Neither strawberries nor blueberries are berries":
+    Pairs only the closest content token before each negation. Correlative
+    neither/nor parsing is imperfect (e.g. initial "neither" has no prior subject).
+    """
+    tokens_list = _ordered_tokens(sentence)
+    pairs: list[tuple[str, str]] = []
+
+    for idx, token in enumerate(tokens_list):
         if token not in _NEGATIONS:
             continue
 
-        scope: list[str] = []
-        for prior in reversed(tokens[max(0, index - 4) : index]):
+        closest_subject: str | None = None
+        for prior in reversed(tokens_list[max(0, idx - 5) : idx]):
             if prior in _STOPWORDS:
                 continue
-            scope.append(prior)
-            if len(scope) >= 2:
-                break
+            closest_subject = prior
+            break
 
-        if scope:
-            scopes.append(set(scope))
+        if closest_subject is not None:
+            pairs.append((token, closest_subject))
 
-    return scopes
+    return pairs
 
 
 def _drops_scoped_negation(claim_text: str, source_sentence: str) -> set[str]:
-    """Return scoped subjects whose negation was dropped from the claim."""
+    """Return subject tokens whose negation was present in source but absent in claim.
 
+    Checks per (negation, subject) pairs rather than doing a blanket
+    "claim has any negation → skip" early exit.
+    """
     claim_terms = _content_tokens(claim_text)
     if not claim_terms:
         return set()
 
-    claim_negations = _tokens(claim_text) & _NEGATIONS
-    if claim_negations:
+    source_pairs = _negation_subject_pairs(source_sentence)
+    if not source_pairs:
         return set()
 
+    claim_pairs = _negation_subject_pairs(claim_text)
+    claim_negated_subjects = {subject for _, subject in claim_pairs}
+
     dropped: set[str] = set()
-    for scope in _negation_scopes(source_sentence):
-        if _scope_overlaps_claim(scope, claim_terms):
-            dropped |= scope
+
+    for _neg_word, source_subject in source_pairs:
+        subject_in_claim = any(
+            _token_covered(source_subject, _morphological_forms_union(term))
+            or _token_covered(term, _morphological_forms_union(source_subject))
+            for term in claim_terms
+        )
+
+        if not subject_in_claim:
+            continue
+
+        subject_negated_in_claim = any(
+            _token_covered(source_subject, _morphological_forms_union(neg_subject))
+            for neg_subject in claim_negated_subjects
+        )
+
+        if not subject_negated_in_claim:
+            dropped.add(source_subject)
 
     return dropped
 

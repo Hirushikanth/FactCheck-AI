@@ -31,7 +31,7 @@ Evidence hit pre-filtering uses Okapi BM25 re-ranking over each search result se
 |---|---|---|---|
 | `raw_input` | `str` | User Input | Original user-submitted text. |
 | `extracted_claims` | `list[ValidatedClaim]` | Extractor | Atomic, self-contained factual claims with original sentence context. |
-| `claim_results` | `list[ClaimResult]` | Verifier | One result per extracted claim, populated incrementally. |
+| `claim_results` | `list[ClaimResult]` | Verifier | One result per extracted claim, populated in a single parallel verifier invocation (order matches `extracted_claims`). |
 | `final_report` | `str | None` | Reporter | Final markdown report. |
 | `messages` | `Annotated[list[BaseMessage], add_messages]` | Dialogue + User | Conversation history with append semantics. |
 | `current_agent` | `str` | Orchestrator | Identifier of the active agent. |
