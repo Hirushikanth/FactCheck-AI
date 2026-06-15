@@ -25,6 +25,32 @@ def test_verifier_prompts_require_definitional_framing() -> None:
     assert "colloquial" in verifier_prompts.EVIDENCE_EVALUATOR_SYSTEM_PROMPT.casefold()
     assert "CONFLICTING_EVIDENCE" in verifier_prompts.EVIDENCE_EVALUATOR_SYSTEM_PROMPT
     assert "aggregate fruits" in verifier_prompts.EVIDENCE_EVALUATOR_SYSTEM_PROMPT.casefold()
+    assert "evidence excerpts" in verifier_prompts.EVIDENCE_EVALUATOR_SYSTEM_PROMPT.casefold()
+    assert "full-page article text" in verifier_prompts.EVIDENCE_EVALUATOR_SYSTEM_PROMPT.casefold()
+
+
+def test_format_evidence_labels_content_source() -> None:
+    from factcheck.verifier.utils import format_evidence
+
+    formatted = format_evidence(
+        [
+            EvidenceItem(
+                url="https://science.example/earth",
+                title="Earth shape",
+                snippet="Fetched article text.",
+                content_source="fetched",
+            ),
+            EvidenceItem(
+                url="https://news.example/earth",
+                title="Earth news",
+                snippet="Search snippet text.",
+                content_source="snippet",
+            ),
+        ]
+    )
+
+    assert "Excerpt (full-page excerpt): Fetched article text." in formatted
+    assert "Excerpt (search snippet): Search snippet text." in formatted
 
 
 def test_evaluator_prompt_distinguishes_bracket_types() -> None:

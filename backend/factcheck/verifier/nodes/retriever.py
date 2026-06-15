@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+import asyncio
+import logging
+import re
 from urllib.parse import urlsplit, urlunsplit
 
+import httpx
+
 from factcheck.search import SearchHit, search_with_fallback
-from factcheck.verifier.config import MAX_SNIPPET_WORDS, RANKER_HEURISTIC_TOP_N
+from factcheck.verifier.config import FULL_PAGE_FETCH_TOP_N, MAX_SNIPPET_WORDS, RANKER_HEURISTIC_TOP_N
 from factcheck.verifier.schemas import EvidenceItem, VerifierState
 from factcheck.verifier.utils import (
     estimate_formatted_evidence_tokens,
@@ -13,6 +18,21 @@ from factcheck.verifier.utils import (
     truncate_snippet,
 )
 from factcheck.verifier.utils.framing import extract_evaluation_frame
+
+
+logger = logging.getLogger(__name__)
+
+_FETCH_TIMEOUT_SECONDS = 8.0
+_MAX_FETCHED_CHARS = 3000
+_SKIP_FETCH_DOMAINS = frozenset({
+    "twitter.com",
+    "x.com",
+    "facebook.com",
+    "instagram.com",
+    "reddit.com",
+    "linkedin.com",
+    "web.archive.org",
+})
 
 
 def _truncate_snippet(text: str, max_words: int = MAX_SNIPPET_WORDS) -> str:
@@ -26,18 +46,117 @@ def _normalized_url(url: str) -> str:
     return urlunsplit((parts.scheme.lower(), netloc, path, "", ""))
 
 
+def _domain_from_url(url: str) -> str:
+    return urlsplit(url).netloc.lower().lstrip("www.")
+
+
+def _extract_text_from_html(html: str) -> str:
+    """Extract readable text from HTML without any heavy library."""
+    html = re.sub(
+        r"<(script|style)[^>]*>.*?</\1>",
+        " ",
+        html,
+        flags=re.DOTALL | re.IGNORECASE,
+    )
+    html = re.sub(r"<[^>]+>", " ", html)
+    html = (
+        html.replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", '"')
+        .replace("&#39;", "'")
+        .replace("&nbsp;", " ")
+    )
+    return re.sub(r"\s+", " ", html).strip()
+
+
+async def _fetch_page_text(url: str) -> str | None:
+    """Attempt to fetch and extract text from a URL."""
+    domain = _domain_from_url(url)
+    if domain in _SKIP_FETCH_DOMAINS:
+        logger.debug("[retriever] Skipping fetch for blocked domain: %s", domain)
+        return None
+
+    try:
+        async with httpx.AsyncClient(
+            timeout=_FETCH_TIMEOUT_SECONDS,
+            follow_redirects=True,
+            headers={
+                "User-Agent": (
+                    "Mozilla/5.0 (compatible; FactCheckBot/1.0; "
+                    "+https://academic-factchecker.example)"
+                )
+            },
+        ) as client:
+            response = await client.get(url)
+
+            if response.status_code != 200:
+                logger.debug(
+                    "[retriever] Non-200 response (%s) from %s",
+                    response.status_code,
+                    url,
+                )
+                return None
+
+            content_type = response.headers.get("content-type", "")
+            if "text/html" not in content_type:
+                logger.debug(
+                    "[retriever] Non-HTML content-type at %s: %s",
+                    url,
+                    content_type,
+                )
+                return None
+
+            text = _extract_text_from_html(response.text)
+            return text[:_MAX_FETCHED_CHARS] if text else None
+
+    except Exception as exc:
+        logger.debug("[retriever] Failed to fetch %s: %s", url, exc)
+        return None
+
+
+def _active_queries(state: VerifierState) -> list[str]:
+    if state.current_queries:
+        return state.current_queries
+    if state.current_query:
+        return [state.current_query]
+    return []
+
+
+async def _search_all_queries(queries: list[str]) -> list[SearchHit]:
+    """Run searches for all queries in parallel and merge hits."""
+    if not queries:
+        return []
+
+    results = await asyncio.gather(
+        *[search_with_fallback(query) for query in queries],
+        return_exceptions=True,
+    )
+
+    merged: list[SearchHit] = []
+    for result in results:
+        if isinstance(result, Exception):
+            logger.warning("[retriever] Search failed: %s", result)
+            continue
+        hits, _provider_name = result
+        merged.extend(hits)
+
+    return merged
+
+
 async def retriever_node(
     state: VerifierState,
 ) -> dict[str, list[EvidenceItem] | int]:
-    """Retrieve and deduplicate search hits for the current query."""
+    """Retrieve and deduplicate search hits, with full-page fetch for top results."""
 
     if state.claim_result is not None:
         return {"evidence": []}
 
-    if not state.current_query or state.estimated_evidence_tokens >= state.max_evidence_tokens:
+    queries = _active_queries(state)
+    if not queries or state.estimated_evidence_tokens >= state.max_evidence_tokens:
         return {"evidence": [], "estimated_evidence_tokens": state.estimated_evidence_tokens}
 
-    hits, _provider_name = await search_with_fallback(state.current_query)
+    hits = await _search_all_queries(queries)
 
     existing_urls = {_normalized_url(item.url) for item in state.evidence}
     deduped_hits: list[SearchHit] = []
@@ -52,15 +171,34 @@ async def retriever_node(
     if not deduped_hits:
         return {"evidence": [], "estimated_evidence_tokens": state.estimated_evidence_tokens}
 
-    new_evidence: list[EvidenceItem] = []
-    new_tokens = 0
-    for hit, score in heuristic_prefilter_hits(
+    ranked_hits = heuristic_prefilter_hits(
         state.claim_text,
         deduped_hits,
         top_n=RANKER_HEURISTIC_TOP_N,
         evaluation_frame=extract_evaluation_frame(state.claim_text),
-    ):
-        snippet = _truncate_snippet(hit.snippet)
+    )
+
+    top_hits_for_fetch = ranked_hits[:FULL_PAGE_FETCH_TOP_N]
+    fetch_tasks = [_fetch_page_text(hit.url) for hit, _ in top_hits_for_fetch]
+    fetched_texts = await asyncio.gather(*fetch_tasks, return_exceptions=True)
+
+    fetched_by_url: dict[str, str] = {}
+    for (hit, _), result in zip(top_hits_for_fetch, fetched_texts):
+        if isinstance(result, str) and result:
+            fetched_by_url[hit.url] = result
+            logger.debug("[retriever] Fetched %d chars from %s", len(result), hit.url)
+
+    new_evidence: list[EvidenceItem] = []
+    new_tokens = 0
+    for hit, score in ranked_hits:
+        if hit.url in fetched_by_url:
+            raw_text = fetched_by_url[hit.url]
+            snippet = _truncate_snippet(raw_text, max_words=MAX_SNIPPET_WORDS * 2)
+            content_source = "fetched"
+        else:
+            snippet = _truncate_snippet(hit.snippet)
+            content_source = "snippet"
+
         source_index = len(state.evidence) + len(new_evidence) + 1
         token_count = estimate_formatted_evidence_tokens(
             url=hit.url,
@@ -77,9 +215,17 @@ async def retriever_node(
                 url=hit.url,
                 title=hit.title,
                 snippet=snippet,
+                content_source=content_source,
                 relevance_score=score,
             )
         )
+
+    logger.debug(
+        "[retriever] Added %d evidence items (%d fetched, %d snippet-only)",
+        len(new_evidence),
+        sum(1 for item in new_evidence if item.content_source == "fetched"),
+        sum(1 for item in new_evidence if item.content_source == "snippet"),
+    )
 
     return {
         "evidence": new_evidence,

@@ -11,9 +11,11 @@ from factcheck.verifier.schemas import VerifierState
 
 
 def route_after_query(state: VerifierState) -> str:
-    """Route to retrieval when a query exists, otherwise evaluate existing evidence."""
+    """Route to retrieval when queries exist, otherwise evaluate existing evidence."""
 
-    return "retriever" if state.current_query else "evidence_evaluator"
+    if state.current_queries or state.current_query:
+        return "retriever"
+    return "evidence_evaluator"
 
 
 def route_after_evaluate(state: VerifierState) -> str:

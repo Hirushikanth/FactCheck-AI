@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from operator import add
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -12,12 +12,16 @@ from factcheck.state import ClaimResult, Verdict
 from factcheck.verifier.config import MAX_EVIDENCE_TOKENS, MAX_ITERATIONS
 
 
+ContentSource = Literal["fetched", "snippet"]
+
+
 class EvidenceItem(BaseModel):
     """A search hit selected as relevant evidence for a claim."""
 
     url: str
     title: str = ""
     snippet: str
+    content_source: ContentSource = "snippet"
     relevance_score: float = 0.0
     is_influential: bool = False
 
@@ -51,6 +55,7 @@ class VerifierState(BaseModel):
     original_index: int | None = None
     fidelity_status: str | None = None
     current_query: str | None = None
+    current_queries: list[str] = Field(default_factory=list)
     all_queries: list[str] = Field(default_factory=list)
     evidence: Annotated[list[EvidenceItem], add] = Field(default_factory=list)
     iteration_count: int = 0

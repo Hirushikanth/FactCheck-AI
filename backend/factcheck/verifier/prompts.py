@@ -5,21 +5,22 @@ from __future__ import annotations
 
 QUERY_GENERATOR_INITIAL_SYSTEM_PROMPT = """
 You are a search query generator for a fact-checking system.
-Generate one concise web search query that can retrieve evidence for the claim.
+Generate two complementary web search queries that can retrieve evidence for the claim.
 
 Rules:
-- Return one neutral search-engine-friendly query.
+- Return two neutral search-engine-friendly queries from different angles.
+- One query should target authoritative or primary sources (official sites, research, government data).
+- The other should target fact-checking, news coverage, or corroborating evidence.
 - Preserve important names, dates, quantities, and factual predicates.
 - Search for the claim as stated. Do not substitute a corrected or more likely version.
-- When the Source assertion or bracketed text in the Claim to verify specifies a definition or domain (e.g., botanical, legal, medical), include that frame in the query.
-- Target authoritative sources when possible.
-- Phrase the query to find both supporting and contradictory evidence.
+- When the Source assertion or bracketed text in the Claim to verify specifies a definition or domain (e.g., botanical, legal, medical), include that frame in at least one query.
+- Phrase queries to find both supporting and contradictory evidence.
 - Do not decide whether the claim is true or false.
 - Do not include explanations.
 
 After completing this task, your output will directly populate the following structured fields:
 
-- queries: A list containing exactly one targeted search query string.
+- queries: A list containing exactly two targeted search query strings.
 """
 
 QUERY_GENERATOR_INITIAL_HUMAN_PROMPT = """
@@ -29,7 +30,7 @@ Source assertion:
 Claim to verify:
 {claim}
 
-Return exactly one targeted search query.
+Return exactly two complementary targeted search queries.
 """
 
 QUERY_GENERATOR_ITERATIVE_SYSTEM_PROMPT = """
@@ -74,11 +75,13 @@ Format:
 
 You are a careful fact-checking evaluator. Use only the provided evidence.
 
+Evidence excerpts may come from full-page article text (richer, up to ~300 words) or search-result snippets (shorter, ~50-150 words). Judge each excerpt on its content, not its length alone. Prefer full-page excerpts when they contain the specific factual detail needed.
+
 Verdict rules:
-- SUPPORTED: at least two reliable snippets directly confirm the claim, with no credible contradiction.
+- SUPPORTED: at least two reliable evidence excerpts directly confirm the claim, with no credible contradiction.
 - REFUTED: reliable evidence directly contradicts the claim.
 - INSUFFICIENT_EVIDENCE: evidence is missing, vague, indirect, or too weak.
-- CONFLICTING_EVIDENCE: credible snippets make opposing factual assertions and neither side clearly resolves it.
+- CONFLICTING_EVIDENCE: credible excerpts make opposing factual assertions and neither side clearly resolves it.
 
 Judge the Claim to verify as stated. Do not substitute a corrected version. False claims should be REFUTED when reliable evidence contradicts them.
 
@@ -91,11 +94,11 @@ Bracketed context and frame matching:
 
 Examples:
 - Claim: "Strawberries are not berries [according to botanical definitions of fruits]"
-  - Colloquial snippet: "Strawberries are commonly called berries" -> not REFUTED; use CONFLICTING_EVIDENCE unless botanical evidence resolves the frame.
-  - Botanical snippet: "Strawberries are aggregate fruits, not true berries" -> SUPPORTED.
+  - Colloquial excerpt: "Strawberries are commonly called berries" -> not REFUTED; use CONFLICTING_EVIDENCE unless botanical evidence resolves the frame.
+  - Botanical excerpt: "Strawberries are aggregate fruits, not true berries" -> SUPPORTED.
 - Claim: "The unemployment rate is above 5% [in the United States]"
-  - Snippet about UK unemployment -> out of scope; do not treat as refutation.
-  - Snippet citing US Bureau of Labor Statistics data -> in scope.
+  - Excerpt about UK unemployment -> out of scope; do not treat as refutation.
+  - Excerpt citing US Bureau of Labor Statistics data -> in scope.
 - Claim: "Gold is not a commodity [under standard economic classification]"
   - Economic-classification evidence that gold is a commodity -> REFUTED within that frame.
   - Everyday usage calling gold an investment -> not REFUTED; use CONFLICTING_EVIDENCE.

@@ -163,3 +163,167 @@ async def test_retriever_respects_evidence_token_budget(monkeypatch) -> None:
 
     assert result["evidence"] == []
     assert result["estimated_evidence_tokens"] == 0
+
+
+async def test_retriever_searches_all_current_queries_in_parallel(monkeypatch) -> None:
+    calls: list[str] = []
+
+    async def fake_search_with_fallback(query: str):
+        calls.append(query)
+        return (
+            [
+                SearchHit(
+                    url=f"https://example.com/{query.replace(' ', '-')}",
+                    title=f"Results for {query}",
+                    snippet=f"Evidence from {query}.",
+                )
+            ],
+            "duckduckgo",
+        )
+
+    async def fake_fetch_page_text(url: str) -> str | None:
+        return None
+
+    monkeypatch.setattr(retriever, "search_with_fallback", fake_search_with_fallback)
+    monkeypatch.setattr(retriever, "_fetch_page_text", fake_fetch_page_text)
+
+    result = await retriever_node(
+        VerifierState(
+            claim_text="The Earth is an oblate spheroid.",
+            current_queries=["earth oblate spheroid official", "earth shape fact check"],
+            all_queries=["earth oblate spheroid official", "earth shape fact check"],
+        )
+    )
+
+    assert sorted(calls) == sorted(
+        ["earth oblate spheroid official", "earth shape fact check"]
+    )
+    assert len(result["evidence"]) == 2
+
+
+async def test_retriever_uses_fetched_page_text_for_top_hits(monkeypatch) -> None:
+    async def fake_search_with_fallback(query: str):
+        return (
+            [
+                SearchHit(
+                    url="https://science.example/earth",
+                    title="Earth shape",
+                    snippet="Short snippet only.",
+                )
+            ],
+            "duckduckgo",
+        )
+
+    async def fake_fetch_page_text(url: str) -> str | None:
+        return "Earth is an oblate spheroid with measurable flattening."
+
+    monkeypatch.setattr(retriever, "search_with_fallback", fake_search_with_fallback)
+    monkeypatch.setattr(retriever, "_fetch_page_text", fake_fetch_page_text)
+
+    result = await retriever_node(
+        VerifierState(
+            claim_text="The Earth is an oblate spheroid.",
+            current_query="earth oblate spheroid",
+        )
+    )
+
+    assert result["evidence"][0].snippet == (
+        "Earth is an oblate spheroid with measurable flattening."
+    )
+    assert result["evidence"][0].content_source == "fetched"
+
+
+async def test_retriever_falls_back_to_snippet_when_fetch_fails(monkeypatch) -> None:
+    async def fake_search_with_fallback(query: str):
+        return (
+            [
+                SearchHit(
+                    url="https://science.example/earth",
+                    title="Earth shape",
+                    snippet="Earth is an oblate spheroid.",
+                )
+            ],
+            "duckduckgo",
+        )
+
+    async def fake_fetch_page_text(url: str) -> str | None:
+        return None
+
+    monkeypatch.setattr(retriever, "search_with_fallback", fake_search_with_fallback)
+    monkeypatch.setattr(retriever, "_fetch_page_text", fake_fetch_page_text)
+
+    result = await retriever_node(
+        VerifierState(
+            claim_text="The Earth is an oblate spheroid.",
+            current_query="earth oblate spheroid",
+        )
+    )
+
+    assert result["evidence"][0].snippet == "Earth is an oblate spheroid."
+    assert result["evidence"][0].content_source == "snippet"
+
+
+async def test_fetch_page_text_skips_blocked_domains() -> None:
+    assert await retriever._fetch_page_text("https://twitter.com/post/123") is None
+
+
+async def test_retriever_uses_snippet_for_blocked_domains(monkeypatch) -> None:
+    async def fake_search_with_fallback(query: str):
+        return (
+            [
+                SearchHit(
+                    url="https://twitter.com/post/123",
+                    title="Tweet",
+                    snippet="Earth is round.",
+                )
+            ],
+            "duckduckgo",
+        )
+
+    monkeypatch.setattr(retriever, "search_with_fallback", fake_search_with_fallback)
+
+    result = await retriever_node(
+        VerifierState(
+            claim_text="The Earth is an oblate spheroid.",
+            current_query="earth shape",
+        )
+    )
+
+    assert result["evidence"][0].snippet == "Earth is round."
+    assert result["evidence"][0].content_source == "snippet"
+
+
+async def test_retriever_fetches_top_five_ranked_hits(monkeypatch) -> None:
+    fetch_calls: list[str] = []
+
+    async def fake_search_with_fallback(query: str):
+        return (
+            [
+                SearchHit(
+                    url=f"https://science.example/hit-{index}",
+                    title=f"Hit {index}",
+                    snippet=f"Snippet for hit {index}.",
+                )
+                for index in range(6)
+            ],
+            "duckduckgo",
+        )
+
+    async def fake_fetch_page_text(url: str) -> str | None:
+        fetch_calls.append(url)
+        return f"Full page text for {url}."
+
+    monkeypatch.setattr(retriever, "search_with_fallback", fake_search_with_fallback)
+    monkeypatch.setattr(retriever, "_fetch_page_text", fake_fetch_page_text)
+
+    result = await retriever_node(
+        VerifierState(
+            claim_text="The Earth is an oblate spheroid.",
+            current_query="earth oblate spheroid",
+        )
+    )
+
+    assert len(fetch_calls) == 5
+    assert sum(item.content_source == "fetched" for item in result["evidence"]) == 5
+    if len(result["evidence"]) > 5:
+        assert result["evidence"][5].content_source == "snippet"

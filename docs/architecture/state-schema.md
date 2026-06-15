@@ -18,8 +18,8 @@ The shared state schema is the Phase 1 contract between all future agents. After
 | `claim` | `str` | Exact extracted claim text. |
 | `verdict` | `SUPPORTED | REFUTED | INSUFFICIENT_EVIDENCE | CONFLICTING_EVIDENCE` | Verdict based on retrieved evidence. |
 | `confidence` | `float` | Normalized confidence score from `0.0` to `1.0`. |
-| `evidence` | `list[str]` | Evidence snippets given to the verifier. |
-| `sources` | `list[str]` | Source URLs corresponding to evidence snippets. |
+| `evidence` | `list[str]` | Evidence text excerpts presented to the verifier. Internally sourced from full-page HTTP fetches (top-ranked hits) or search-result snippets (fallback). |
+| `sources` | `list[str]` | Source URLs corresponding to evidence excerpts. |
 | `reasoning` | `str` | Explanation connecting evidence to verdict. |
 | `search_queries` | `list[str]` | Exact web search queries issued for the claim. |
 

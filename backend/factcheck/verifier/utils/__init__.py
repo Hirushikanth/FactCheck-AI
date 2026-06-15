@@ -171,7 +171,8 @@ def format_evidence(evidence: list[EvidenceItem]) -> str:
         (
             f"Source {index}: {item.url}\n"
             f"Title: {item.title or 'Untitled'}\n"
-            f"Snippet: {item.snippet}"
+            f"Excerpt ({'full-page excerpt' if item.content_source == 'fetched' else 'search snippet'}): "
+            f"{item.snippet}"
         )
         for index, item in enumerate(evidence, start=1)
     )

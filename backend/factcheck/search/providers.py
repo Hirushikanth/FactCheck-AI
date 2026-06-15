@@ -16,7 +16,17 @@ from factcheck.search.models import SearchHit
 
 logger = logging.getLogger(__name__)
 
+# Global DDG request state protected by an asyncio lock
 _last_ddg_request_at: float | None = None
+_ddg_lock: asyncio.Lock | None = None
+
+
+def _get_ddg_lock() -> asyncio.Lock:
+    """Return the global DDG lock, creating it lazily on the running event loop."""
+    global _ddg_lock
+    if _ddg_lock is None:
+        _ddg_lock = asyncio.Lock()
+    return _ddg_lock
 
 
 def _jittered_backoff(attempt: int, base: float, max_delay: float) -> float:
@@ -40,35 +50,35 @@ def _truncate_query(query: str, max_len: int = 80) -> str:
 
 
 async def _enforce_ddg_spacing(settings: AppSettings) -> None:
-    """Sleep if the previous DuckDuckGo request was too recent."""
+    """Enforce minimum spacing between DDG requests using a global async lock."""
 
     global _last_ddg_request_at
 
-    if settings.ddg_min_request_interval <= 0 or _last_ddg_request_at is None:
+    if settings.ddg_min_request_interval <= 0:
         return
 
-    elapsed = time.monotonic() - _last_ddg_request_at
-    if elapsed >= settings.ddg_min_request_interval:
-        return
+    lock = _get_ddg_lock()
 
-    wait = (settings.ddg_min_request_interval - elapsed) + random.uniform(0, 0.5)
-    logger.warning(
-        "Spacing DuckDuckGo requests to avoid rate limits; waiting %.1fs",
-        wait,
-    )
-    await asyncio.sleep(wait)
+    async with lock:
+        if _last_ddg_request_at is not None:
+            elapsed = time.monotonic() - _last_ddg_request_at
+            if elapsed < settings.ddg_min_request_interval:
+                wait = (settings.ddg_min_request_interval - elapsed) + random.uniform(0, 0.5)
+                logger.debug(
+                    "[ddg] Rate limit spacing: waiting %.2fs before next request",
+                    wait,
+                )
+                await asyncio.sleep(wait)
 
-
-def _record_ddg_request() -> None:
-    global _last_ddg_request_at
-    _last_ddg_request_at = time.monotonic()
+        _last_ddg_request_at = time.monotonic()
 
 
 def reset_ddg_spacing_for_tests() -> None:
     """Reset cached spacing state so tests do not inherit timing from prior runs."""
 
-    global _last_ddg_request_at
+    global _last_ddg_request_at, _ddg_lock
     _last_ddg_request_at = None
+    _ddg_lock = None
 
 
 class SearchProvider(Protocol):
@@ -111,7 +121,6 @@ class DuckDuckGoProvider:
             try:
                 hits = await asyncio.to_thread(_search)
             except Exception as exc:
-                _record_ddg_request()
                 throttle_note = " (likely rate limited)" if _is_likely_throttle(str(exc)) else ""
                 is_last = attempt + 1 >= max_retries
                 logger.warning(
@@ -132,8 +141,6 @@ class DuckDuckGoProvider:
                 logger.warning("DuckDuckGo retrying in %.1fs", delay)
                 await asyncio.sleep(delay)
                 continue
-
-            _record_ddg_request()
 
             if hits:
                 return hits

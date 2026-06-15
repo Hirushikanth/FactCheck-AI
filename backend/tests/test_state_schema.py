@@ -52,6 +52,7 @@ def test_verifier_state_tracks_iterative_evidence_loop() -> None:
     assert state.claim_text == "The Earth is round."
     assert state.source_sentence == "The Earth is round."
     assert state.current_query is None
+    assert state.current_queries == []
     assert state.all_queries == []
     assert state.evidence == []
     assert state.iteration_count == 0
@@ -68,5 +69,6 @@ def test_verifier_schema_marks_influential_sources_and_missing_aspects() -> None
         missing_aspects=["independent source"],
     )
 
+    assert evidence.content_source == "snippet"
     assert evidence.is_influential is True
     assert assessment.missing_aspects == ["independent source"]
