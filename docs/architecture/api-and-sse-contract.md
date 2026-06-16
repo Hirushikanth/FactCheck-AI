@@ -32,14 +32,27 @@ This document records the implemented REST and Server-Sent Events contract for t
 | Field | Type | Description |
 |---|---|---|
 | `session_id` | `string` | UUID |
-| `raw_input` | `string` | Original user input |
+| `active_run_id` | `string \| null` | UUID of the currently active fact-check run |
+| `raw_input` | `string` | Input text for the **active** run |
 | `status` | `string` | `running`, `done`, or `error` |
-| `final_report` | `string \| null` | Markdown report from the reporter |
+| `final_report` | `string \| null` | Markdown report from the reporter (active run) |
 | `error` | `string \| null` | Error message if status is `error` |
-| `claim_results` | `list[dict]` | Per-claim verdicts from the verifier |
+| `claim_results` | `list[dict]` | Per-claim verdicts from the verifier (active run) |
 | `messages` | `list[dict]` | Dialogue message history |
+| `runs` | `list[FactCheckRunSummary]` | All fact-check runs in sequence order |
 | `created_at` | `float` | Unix timestamp |
 | `updated_at` | `float` | Unix timestamp |
+
+### FactCheckRunSummary
+
+| Field | Type | Description |
+|---|---|---|
+| `run_id` | `string` | UUID |
+| `sequence` | `int` | 1-based order within the session |
+| `raw_input` | `string` | Input text for this run |
+| `status` | `string` | `running`, `done`, or `error` |
+| `triggered_by` | `string` | `initial` or `dialogue` |
+| `created_at` | `float` | Unix timestamp |
 
 ### DialogueResponse
 
@@ -71,8 +84,11 @@ Events are pushed to the session queue and consumed via `GET /api/sessions/{id}/
 
 ## Session Lifecycle
 
-1. `POST /api/sessions` creates a session, returns `202` with `status: "running"`, and starts the pipeline in the background.
+1. `POST /api/sessions` creates a session and **run #1** (`triggered_by: initial`), returns `202` with `status: "running"`, and starts the pipeline in the background.
 2. Client opens `GET /api/sessions/{id}/stream` to receive SSE events.
-3. On completion, `GET /api/sessions/{id}` returns the full session with `status: "done"`.
+3. On completion, `GET /api/sessions/{id}` returns the full session with `status: "done"`. Top-level `raw_input`, `claim_results`, and `final_report` reflect the **active run**; `runs[]` lists all runs in order.
 4. `POST /api/sessions/{id}/messages` posts a follow-up message (requires `status: "done"`); dialogue runs in the background and emits SSE events on the same stream endpoint.
-5. Alternatively, `POST /api/dialogue/{session_id}` runs dialogue synchronously and returns the response directly.
+5. If dialogue detects a new claim, a **new run** is appended (`triggered_by: dialogue`), becomes the active run, and prior runs are preserved in `runs[]`.
+6. Alternatively, `POST /api/dialogue/{session_id}` runs dialogue synchronously and returns the response directly.
+
+`GET /api/sessions` (list) uses the **first run's** `raw_input` as the session title.

@@ -84,8 +84,16 @@ async def test_run_dialogue_turn_background_sets_error_on_failure(temp_db, monke
 
 
 @pytest.mark.asyncio
-async def test_trigger_new_factcheck_sets_done_via_save(temp_db, monkeypatch) -> None:
-    session_store.create_session("sess-refact", "Original.", db_path=temp_db)
+async def test_trigger_new_factcheck_appends_run_preserves_original(temp_db, monkeypatch) -> None:
+    run1_id = session_store.create_session("sess-refact", "Original.", db_path=temp_db)
+    session_store.complete_factcheck_run(
+        run1_id,
+        claim_results=[{"claim": "Original.", "verdict": "SUPPORTED"}],
+        final_report="Original report.",
+        db_path=temp_db,
+    )
+    session_store.set_active_run("sess-refact", run1_id, db_path=temp_db)
+    session_store.update_session_status("sess-refact", "done", db_path=temp_db)
 
     async def fake_run_factcheck_with_events(**kwargs):
         return {
@@ -106,11 +114,20 @@ async def test_trigger_new_factcheck_sets_done_via_save(temp_db, monkeypatch) ->
     assert session is not None
     assert session["status"] == "done"
     assert session["raw_input"] == "New claim."
+    runs = session_store.get_factcheck_runs("sess-refact", db_path=temp_db)
+    assert len(runs) == 2
+    assert runs[0]["raw_input"] == "Original."
+    assert runs[1]["raw_input"] == "New claim."
 
 
 @pytest.mark.asyncio
-async def test_trigger_new_factcheck_does_not_call_try_acquire(temp_db, monkeypatch) -> None:
-    session_store.create_session("sess-no-acquire", "Original.", db_path=temp_db)
+async def test_trigger_new_factcheck_calls_try_acquire(temp_db, monkeypatch) -> None:
+    run1_id = session_store.create_session("sess-acquire", "Original.", db_path=temp_db)
+    session_store.complete_factcheck_run(
+        run1_id, claim_results=[], final_report="Report.", db_path=temp_db
+    )
+    session_store.set_active_run("sess-acquire", run1_id, db_path=temp_db)
+    session_store.update_session_status("sess-acquire", "done", db_path=temp_db)
 
     async def fake_run_factcheck_with_events(**kwargs):
         return {"claim_results": [], "final_report": "Report."}
@@ -122,6 +139,6 @@ async def test_trigger_new_factcheck_does_not_call_try_acquire(temp_db, monkeypa
     )
     monkeypatch.setattr(dialogue_service, "create_session_queue", lambda session_id: None)
 
-    with patch.object(session_store, "try_acquire_session") as store_acquire:
-        await dialogue_service._trigger_new_factcheck("sess-no-acquire", "New claim.")
-        store_acquire.assert_not_called()
+    with patch.object(dialogue_service, "try_acquire_session", return_value=True) as store_acquire:
+        await dialogue_service._trigger_new_factcheck("sess-acquire", "New claim.")
+        store_acquire.assert_called_once_with("sess-acquire")

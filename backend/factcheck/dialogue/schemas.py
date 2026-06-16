@@ -7,7 +7,7 @@ and works from that stable snapshot throughout the session.
 
 from __future__ import annotations
 
-from typing import Optional, TypedDict
+from typing import NotRequired, Optional, TypedDict
 
 
 class DialogueTurn(TypedDict):
@@ -48,9 +48,12 @@ class DialogueState(TypedDict):
     original_text: Optional[str]
     claim_results: list[dict]  # snapshot of ClaimResult dicts from FactCheckState
     final_report: Optional[str]
+    fact_check_runs: NotRequired[list[dict]]
+    _latest_run_sequence: NotRequired[int]
 
     # ── Compiled context (cached after init_context, reused each turn) ────────
     _compressed_fc_context: Optional[str]
+    _fc_context_covers_sequence: NotRequired[Optional[int]]
 
     # ── Conversation history ──────────────────────────────────────────────────
     dialogue_history: list[DialogueTurn]
@@ -85,6 +88,7 @@ class DialogueOutput(TypedDict):
     dialogue_history: list[DialogueTurn]
     conversation_summary: Optional[ConversationSummary]
     compressed_fc_context: Optional[str]
+    fc_context_covers_sequence: Optional[int]
     needs_new_factcheck: bool
     new_claim_text: Optional[str]
     error: Optional[str]

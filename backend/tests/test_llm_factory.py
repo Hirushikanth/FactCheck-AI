@@ -95,3 +95,21 @@ def test_get_extractor_llm_applies_num_predict_and_num_ctx(monkeypatch) -> None:
     assert captured["temperature"] == 0.2
     assert captured["num_ctx"] == 8192
     assert captured["num_predict"] == 512
+
+
+def test_get_dialogue_llm_uses_dialogue_num_predict(monkeypatch) -> None:
+    from factcheck.dialogue.config import DIALOGUE_NUM_PREDICT, MAX_RESPONSE_TOKENS
+
+    captured: dict[str, object] = {}
+
+    class FakeChatOllama:
+        def __init__(self, **kwargs: object) -> None:
+            captured.update(kwargs)
+
+    monkeypatch.setattr(factory, "ChatOllama", FakeChatOllama)
+
+    llm = factory.get_dialogue_llm(settings=AppSettings(_env_file=None))
+
+    assert isinstance(llm, FakeChatOllama)
+    assert captured["num_predict"] == DIALOGUE_NUM_PREDICT
+    assert DIALOGUE_NUM_PREDICT != MAX_RESPONSE_TOKENS

@@ -7,10 +7,15 @@ import logging
 from typing import Any
 
 from factcheck.db.session_store import (
+    complete_factcheck_run,
+    create_factcheck_run,
+    invalidate_fc_context,
     load_session_for_dialogue,
+    mark_factcheck_run_error,
     persist_dialogue_state,
-    save_factcheck_session,
     session_exists,
+    set_active_run,
+    try_acquire_session,
     update_session_status,
 )
 from factcheck.dialogue import run_dialogue
@@ -21,6 +26,20 @@ from factcheck.graph.runner import run_dialogue_with_events, run_factcheck_with_
 logger = logging.getLogger(__name__)
 
 
+def _dialogue_load_kwargs(session: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "raw_input": session["raw_input"],
+        "claim_results": session["claim_results"],
+        "final_report": session.get("final_report"),
+        "dialogue_history": session["dialogue_history"],
+        "conversation_summary": session.get("conversation_summary"),
+        "compressed_fc_context": session.get("compressed_fc_context"),
+        "fact_check_runs": session.get("fact_check_runs", []),
+        "latest_run_sequence": session.get("latest_run_sequence", 0),
+        "fc_context_covers_sequence": session.get("fc_context_covers_sequence"),
+    }
+
+
 async def run_dialogue_turn(session_id: str, message: str) -> DialogueOutput:
     """Run one synchronous dialogue turn and persist state."""
     session = load_session_for_dialogue(session_id)
@@ -29,12 +48,7 @@ async def run_dialogue_turn(session_id: str, message: str) -> DialogueOutput:
     result = await run_dialogue(
         session_id=session_id,
         user_message=message,
-        raw_input=session["raw_input"],
-        claim_results=session["claim_results"],
-        final_report=session.get("final_report"),
-        dialogue_history=session["dialogue_history"],
-        conversation_summary=session.get("conversation_summary"),
-        compressed_fc_context=session.get("compressed_fc_context"),
+        **_dialogue_load_kwargs(session),
     )
 
     persist_dialogue_state(session_id, result, prior_history_len=prior_history_len)
@@ -56,12 +70,7 @@ async def run_dialogue_turn_background(session_id: str, message: str) -> None:
         result = await run_dialogue_with_events(
             session_id=session_id,
             user_message=message,
-            raw_input=session["raw_input"],
-            claim_results=session["claim_results"],
-            final_report=session.get("final_report"),
-            dialogue_history=session["dialogue_history"],
-            conversation_summary=session.get("conversation_summary"),
-            compressed_fc_context=session.get("compressed_fc_context"),
+            **_dialogue_load_kwargs(session),
         )
 
         await asyncio.to_thread(
@@ -91,23 +100,40 @@ async def run_dialogue_turn_background(session_id: str, message: str) -> None:
 
 async def _trigger_new_factcheck(session_id: str, claim_text: str) -> None:
     """Run a new fact-check for a claim submitted during dialogue."""
+    acquired = await asyncio.to_thread(try_acquire_session, session_id)
+    if not acquired:
+        logger.warning(
+            "[dialogue_service] Re-factcheck skipped for session %s: session busy",
+            session_id,
+        )
+        return
+
+    run_id = await asyncio.to_thread(
+        create_factcheck_run,
+        session_id,
+        claim_text,
+        "dialogue",
+    )
     create_session_queue(session_id)
     try:
         result = await run_factcheck_with_events(session_id=session_id, text=claim_text)
         claim_results = [dict(cr) for cr in result.get("claim_results", [])]
         await asyncio.to_thread(
-            save_factcheck_session,
-            session_id,
-            raw_input=claim_text,
+            complete_factcheck_run,
+            run_id,
             claim_results=claim_results,
             final_report=result.get("final_report"),
         )
+        await asyncio.to_thread(set_active_run, session_id, run_id)
+        await asyncio.to_thread(invalidate_fc_context, session_id)
+        await asyncio.to_thread(update_session_status, session_id, "done")
     except Exception as exc:
         logger.error(
             "[dialogue_service] New fact-check failed for session %s: %s",
             session_id,
             exc,
         )
+        await asyncio.to_thread(mark_factcheck_run_error, run_id, str(exc))
         await asyncio.to_thread(
             update_session_status,
             session_id,

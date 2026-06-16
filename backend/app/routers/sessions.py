@@ -19,12 +19,13 @@ from app.schemas.sessions import (
     SessionSummary,
 )
 from factcheck.db.session_store import (
+    complete_factcheck_run,
     create_session,
     delete_session,
     get_session,
     list_sessions,
-    save_factcheck_session,
     session_exists,
+    set_active_run,
     try_acquire_session,
     update_session_status,
 )
@@ -37,18 +38,19 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/sessions", tags=["sessions"])
 
 
-async def _run_and_persist(session_id: str, text: str) -> None:
+async def _run_and_persist(session_id: str, run_id: str, text: str) -> None:
     """Background task: run the pipeline and persist final state."""
     try:
         result = await run_factcheck_with_events(session_id=session_id, text=text)
         claim_results = [dict(cr) for cr in result.get("claim_results", [])]
         await asyncio.to_thread(
-            save_factcheck_session,
-            session_id,
-            raw_input=text,
+            complete_factcheck_run,
+            run_id,
             claim_results=claim_results,
             final_report=result.get("final_report"),
         )
+        await asyncio.to_thread(set_active_run, session_id, run_id)
+        await asyncio.to_thread(update_session_status, session_id, "done")
     except Exception as exc:
         logger.error(
             "[sessions] Pipeline failed for session %s: %s",
@@ -71,9 +73,9 @@ async def start_session(
     """Create a new fact-check session and kick off the pipeline in the background."""
     session_id = str(uuid.uuid4())
 
-    await asyncio.to_thread(create_session, session_id, body.input)
+    run_id = await asyncio.to_thread(create_session, session_id, body.input)
     create_session_queue(session_id)
-    background_tasks.add_task(_run_and_persist, session_id, body.input)
+    background_tasks.add_task(_run_and_persist, session_id, run_id, body.input)
 
     return CreateSessionResponse(session_id=session_id, status="running")
 

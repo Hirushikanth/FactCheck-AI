@@ -94,6 +94,9 @@ async def run_dialogue_with_events(
     dialogue_history: Optional[list[DialogueTurn]] = None,
     conversation_summary: Optional[ConversationSummary] = None,
     compressed_fc_context: Optional[str] = None,
+    fact_check_runs: Optional[list[dict[str, Any]]] = None,
+    latest_run_sequence: int = 0,
+    fc_context_covers_sequence: Optional[int] = None,
 ) -> DialogueOutput:
     """Run one dialogue turn and emit SSE events."""
     from factcheck.dialogue import run_dialogue
@@ -114,6 +117,9 @@ async def run_dialogue_with_events(
             dialogue_history=dialogue_history,
             conversation_summary=conversation_summary,
             compressed_fc_context=compressed_fc_context,
+            fact_check_runs=fact_check_runs,
+            latest_run_sequence=latest_run_sequence,
+            fc_context_covers_sequence=fc_context_covers_sequence,
         )
 
         if result.get("response"):

@@ -101,6 +101,80 @@ async def test_generate_response_clears_prior_error_message(monkeypatch) -> None
     assert result["error_message"] is None
 
 
+def _empty_length_response(eval_count: int = 512) -> MagicMock:
+    msg = MagicMock()
+    msg.content = ""
+    msg.response_metadata = {"done_reason": "length", "eval_count": eval_count}
+    return msg
+
+
+async def test_generate_response_retries_on_empty_length(monkeypatch) -> None:
+    import factcheck.dialogue.config as dialogue_config
+    import factcheck.dialogue.nodes.generate_response as gen_module
+
+    retry_llm = AsyncMock()
+    retry_llm.ainvoke = AsyncMock(return_value=MagicMock(content="Retry succeeded."))
+
+    llm = AsyncMock()
+    llm.ainvoke = AsyncMock(return_value=_empty_length_response())
+    llm.bind = MagicMock(return_value=retry_llm)
+    monkeypatch.setattr(gen_module, "get_dialogue_llm", lambda **kw: llm)
+
+    from factcheck.dialogue.nodes.generate_response import generate_response_node
+
+    result = await generate_response_node(
+        _base_state(_assembled_messages=[{"role": "user", "content": "Why?"}])
+    )
+
+    assert result["dialogue_response"] == "Retry succeeded."
+    assert llm.ainvoke.await_count == 1
+    llm.bind.assert_called_once_with(num_predict=dialogue_config.DIALOGUE_NUM_PREDICT_RETRY)
+    retry_llm.ainvoke.assert_awaited_once()
+
+
+async def test_generate_response_fallback_when_retry_also_empty(monkeypatch, caplog) -> None:
+    import factcheck.dialogue.nodes.generate_response as gen_module
+
+    retry_llm = AsyncMock()
+    retry_llm.ainvoke = AsyncMock(return_value=_empty_length_response(eval_count=4096))
+
+    llm = AsyncMock()
+    llm.ainvoke = AsyncMock(return_value=_empty_length_response())
+    llm.bind = MagicMock(return_value=retry_llm)
+    monkeypatch.setattr(gen_module, "get_dialogue_llm", lambda **kw: llm)
+
+    from factcheck.dialogue.nodes.generate_response import (
+        _FALLBACK_RESPONSE,
+        generate_response_node,
+    )
+
+    with caplog.at_level("WARNING"):
+        result = await generate_response_node(
+            _base_state(_assembled_messages=[{"role": "user", "content": "Why?"}])
+        )
+
+    assert result["dialogue_response"] == _FALLBACK_RESPONSE
+    assert any("Using fallback" in record.message for record in caplog.records)
+
+
+async def test_generate_response_no_retry_when_content_present(monkeypatch) -> None:
+    import factcheck.dialogue.nodes.generate_response as gen_module
+
+    llm = AsyncMock()
+    llm.ainvoke = AsyncMock(return_value=MagicMock(content="Direct answer."))
+    llm.bind = MagicMock()
+    monkeypatch.setattr(gen_module, "get_dialogue_llm", lambda **kw: llm)
+
+    from factcheck.dialogue.nodes.generate_response import generate_response_node
+
+    result = await generate_response_node(
+        _base_state(_assembled_messages=[{"role": "user", "content": "Why?"}])
+    )
+
+    assert result["dialogue_response"] == "Direct answer."
+    llm.bind.assert_not_called()
+
+
 async def test_estimate_tokens_uses_windowed_history_not_full_history() -> None:
     from factcheck.dialogue.nodes.estimate_tokens import _estimate_prompt_tokens
 
@@ -136,9 +210,42 @@ async def test_init_context_skips_when_cache_present() -> None:
 
     cached = "=== cached context ==="
     result = await init_context_node(
-        _base_state(_compressed_fc_context=cached, claim_results=[{"claim": "A"}])
+        _base_state(
+            _compressed_fc_context=cached,
+            _fc_context_covers_sequence=1,
+            _latest_run_sequence=1,
+            claim_results=[{"claim": "A"}],
+        )
     )
     assert result == {}
+
+
+async def test_init_context_rebuilds_when_cache_stale() -> None:
+    from factcheck.dialogue.nodes.init_context import init_context_node
+
+    result = await init_context_node(
+        _base_state(
+            _compressed_fc_context="=== stale cache ===",
+            _fc_context_covers_sequence=1,
+            _latest_run_sequence=2,
+            fact_check_runs=[
+                {
+                    "sequence": 1,
+                    "raw_input": "First.",
+                    "claim_results": [{"claim": "A", "verdict": "SUPPORTED"}],
+                },
+                {
+                    "sequence": 2,
+                    "raw_input": "Second.",
+                    "claim_results": [{"claim": "B", "verdict": "REFUTED"}],
+                },
+            ],
+        )
+    )
+    assert result.get("_compressed_fc_context")
+    assert "FACT-CHECK RUN 1" in result["_compressed_fc_context"]
+    assert "FACT-CHECK RUN 2" in result["_compressed_fc_context"]
+    assert result.get("_fc_context_covers_sequence") == 2
 
 
 async def test_run_dialogue_returns_classified_intent(monkeypatch) -> None:

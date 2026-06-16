@@ -32,14 +32,25 @@ class SessionSummary(BaseModel):
     updated_at: float
 
 
+class FactCheckRunSummary(BaseModel):
+    run_id: str
+    sequence: int
+    raw_input: str
+    status: str
+    triggered_by: str
+    created_at: float
+
+
 class SessionDetail(BaseModel):
     session_id: str
+    active_run_id: str | None = None
     raw_input: str
     status: str
     final_report: str | None
     error: str | None
     claim_results: list[dict[str, Any]]
     messages: list[dict[str, Any]]
+    runs: list[FactCheckRunSummary] = Field(default_factory=list)
     created_at: float
     updated_at: float
 

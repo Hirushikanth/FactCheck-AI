@@ -96,6 +96,7 @@ def test_dialogue_route_returns_intent_and_persists_history(client, temp_db, mon
             ],
             "conversation_summary": None,
             "compressed_fc_context": "=== cached ===",
+            "fc_context_covers_sequence": 1,
             "needs_new_factcheck": False,
             "new_claim_text": None,
             "error": None,

@@ -1,8 +1,10 @@
 """Dialogue Agent configuration constants.
 
 All token budgets and Ollama parameter values live here so that
-node code contains zero magic numbers.  Values are tuned for
-Mistral 7B running via Ollama on an RTX 3070 (8 GB VRAM).
+node code contains zero magic numbers.  Prompt budgets were originally
+tuned for Mistral 7B; DIALOGUE_NUM_PREDICT is sized separately for
+thinking models (e.g. gemma4) where num_predict must cover internal
+reasoning plus the visible answer.
 """
 
 from __future__ import annotations
@@ -38,8 +40,13 @@ SLIDING_WINDOW_MAX_TURNS: int = 6  # 3 pairs
 # Hard cap on user message tokens before truncation.
 MAX_USER_MESSAGE_TOKENS: int = 200
 
-# Tokens reserved for the LLM response (and KV-cache headroom).
+# Tokens reserved for the LLM response (and KV-cache headroom in assemble_context).
 MAX_RESPONSE_TOKENS: int = 512
+
+# Ollama num_predict for generate_response (thinking models need headroom beyond visible answer).
+DIALOGUE_NUM_PREDICT: int = 2048
+# One-shot retry budget when the first call hits length with empty content.
+DIALOGUE_NUM_PREDICT_RETRY: int = 4096
 
 # Total prompt token ceiling before triggering history compression.
 # Leaves MAX_RESPONSE_TOKENS + 3000 slack for per-turn LLM overhead.
@@ -55,7 +62,7 @@ COMPRESSION_THRESHOLD_TURNS: int = 4
 #: Main response generation
 DIALOGUE_LLM_PARAMS: dict = {
     "num_ctx": NUM_CTX,
-    "num_predict": MAX_RESPONSE_TOKENS,
+    "num_predict": DIALOGUE_NUM_PREDICT,
     "temperature": 0.3,
     "top_p": 0.85,
     "repeat_penalty": 1.15,

@@ -53,6 +53,9 @@ async def run_dialogue(
     dialogue_history: Optional[list[DialogueTurn]] = None,
     conversation_summary: Optional[ConversationSummary] = None,
     compressed_fc_context: Optional[str] = None,
+    fact_check_runs: Optional[list[dict]] = None,
+    latest_run_sequence: int = 0,
+    fc_context_covers_sequence: Optional[int] = None,
 ) -> DialogueOutput:
     """Run one dialogue turn and return the result.
 
@@ -65,6 +68,9 @@ async def run_dialogue(
         dialogue_history:    Previous dialogue turns (pass [] for first turn).
         conversation_summary: Rolling summary from a prior compression run.
         compressed_fc_context: Cached fact-check context block from a prior turn.
+        fact_check_runs:       Completed runs for cumulative context compression.
+        latest_run_sequence:   Highest completed run sequence in the session.
+        fc_context_covers_sequence: Run sequence covered by the cached context.
 
     Returns:
         DialogueOutput with the assistant's response, updated history, and
@@ -75,7 +81,10 @@ async def run_dialogue(
         original_text=raw_input,
         claim_results=claim_results,
         final_report=final_report,
+        fact_check_runs=fact_check_runs or [],
+        _latest_run_sequence=latest_run_sequence,
         _compressed_fc_context=compressed_fc_context,
+        _fc_context_covers_sequence=fc_context_covers_sequence,
         dialogue_history=dialogue_history or [],
         conversation_summary=conversation_summary,
         current_user_message=user_message,
@@ -102,6 +111,7 @@ async def run_dialogue(
             dialogue_history=dialogue_history or [],
             conversation_summary=conversation_summary,
             compressed_fc_context=compressed_fc_context,
+            fc_context_covers_sequence=fc_context_covers_sequence,
             needs_new_factcheck=False,
             new_claim_text=None,
             error=str(exc),
@@ -115,6 +125,7 @@ async def run_dialogue(
         dialogue_history=result_state.get("dialogue_history", []),
         conversation_summary=result_state.get("conversation_summary"),
         compressed_fc_context=result_state.get("_compressed_fc_context"),
+        fc_context_covers_sequence=result_state.get("_fc_context_covers_sequence"),
         needs_new_factcheck=result_state.get("needs_new_factcheck", False),
         new_claim_text=result_state.get("new_claim_text"),
         error=result_state.get("error_message"),

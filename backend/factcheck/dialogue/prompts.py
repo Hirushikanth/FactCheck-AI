@@ -122,6 +122,42 @@ def compress_factcheck_context(
     return "\n".join(lines)
 
 
+def compress_factcheck_runs(
+    runs: list[dict],
+    *,
+    max_input_chars: int = 120,
+) -> str:
+    """Build cumulative context from multiple completed fact-check runs."""
+    if not runs:
+        return compress_factcheck_context([])
+
+    sections: list[str] = []
+    for run in runs:
+        sequence = run.get("sequence", 0)
+        raw_input = run.get("raw_input", "")
+        input_short = raw_input[:max_input_chars]
+        if len(raw_input) > max_input_chars:
+            input_short += "..."
+
+        claim_block = compress_factcheck_context(run.get("claim_results", []))
+        claim_block = claim_block.replace(
+            "=== FACT-CHECK RESULTS (session context) ===",
+            "",
+        ).replace("=== END OF FACT-CHECK CONTEXT ===", "").strip()
+
+        sections.append(
+            f"=== FACT-CHECK RUN {sequence} ===\n"
+            f"Input: {input_short}\n\n"
+            f"{claim_block}"
+        )
+
+    return (
+        "=== FACT-CHECK RESULTS (session context) ===\n"
+        + "\n\n".join(sections)
+        + "\n=== END OF FACT-CHECK CONTEXT ==="
+    )
+
+
 def build_session_context_extras(
     original_text: str | None,
     final_report: str | None,
