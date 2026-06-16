@@ -91,6 +91,21 @@ def test_post_message_accepts_done_session(client, temp_db, monkeypatch) -> None
     assert response.status_code == 202
     assert response.json()["message_id"]
 
+    session = session_store.get_session("sess-done", db_path=temp_db)
+    assert session is not None
+    assert session["status"] == "running"
+
+
+def test_post_message_atomic_reject_when_running(client, temp_db) -> None:
+    session_store.create_session("sess-running", "Still running.", db_path=temp_db)
+
+    response = client.post(
+        "/api/sessions/sess-running/messages",
+        json={"message": "Follow-up?"},
+    )
+
+    assert response.status_code == 409
+
 
 def test_list_and_delete_sessions(client, temp_db) -> None:
     session_store.save_factcheck_session(

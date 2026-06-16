@@ -119,6 +119,9 @@ frontend/.env.*.local
 # Temporary SSE debug terminal — see docs/dev/hack-terminal.md
 dev-hack-terminal/
 
+# --- Local audit notes -----------------------------
+docs/audit/
+
 # --- IDE / editor ------------------------------------------------------------
 .idea/
 .vscode/

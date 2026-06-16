@@ -73,11 +73,19 @@ async def run_dialogue_turn_background(session_id: str, message: str) -> None:
 
         if result.get("needs_new_factcheck") and result.get("new_claim_text"):
             await _trigger_new_factcheck(session_id, result["new_claim_text"])
+        else:
+            await asyncio.to_thread(update_session_status, session_id, "done")
     except Exception as exc:
         logger.error(
             "[dialogue_service] Background dialogue failed for session %s: %s",
             session_id,
             exc,
+        )
+        await asyncio.to_thread(
+            update_session_status,
+            session_id,
+            "error",
+            error=str(exc),
         )
 
 

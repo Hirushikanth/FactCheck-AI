@@ -153,6 +153,26 @@ def update_session_status(
         )
 
 
+def try_acquire_session(
+    session_id: str,
+    db_path: Path | str | None = None,
+) -> bool:
+    """Atomically transition done -> running. Returns True if acquired."""
+    resolved = _resolve_db_path(db_path)
+    ensure_dialogue_tables(resolved)
+    now = time.time()
+    with _get_connection(resolved) as conn:
+        cursor = conn.execute(
+            """
+            UPDATE fact_check_sessions
+            SET status = 'running', error = NULL, updated_at = ?
+            WHERE session_id = ? AND status = 'done'
+            """,
+            (now, session_id),
+        )
+        return cursor.rowcount > 0
+
+
 def get_session(
     session_id: str,
     db_path: Path | str | None = None,

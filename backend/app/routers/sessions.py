@@ -25,6 +25,7 @@ from factcheck.db.session_store import (
     list_sessions,
     save_factcheck_session,
     session_exists,
+    try_acquire_session,
     update_session_status,
 )
 from factcheck.dialogue.service import run_dialogue_turn_background
@@ -106,10 +107,9 @@ async def post_message(
     background_tasks: BackgroundTasks,
 ) -> PostMessageResponse:
     """Post a follow-up message after the initial fact-check is complete."""
-    session = await asyncio.to_thread(get_session, session_id)
-    if session is None:
+    if not await asyncio.to_thread(session_exists, session_id):
         raise HTTPException(status_code=404, detail="Session not found")
-    if session["status"] != "done":
+    if not await asyncio.to_thread(try_acquire_session, session_id):
         raise HTTPException(status_code=409, detail="Session pipeline is not finished yet")
 
     message_id = str(uuid.uuid4())

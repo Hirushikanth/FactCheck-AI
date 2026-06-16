@@ -60,6 +60,17 @@ def test_dialogue_route_returns_404_for_missing_session(client, temp_db) -> None
     assert response.status_code == 404
 
 
+def test_dialogue_route_returns_409_when_running(client, temp_db) -> None:
+    session_store.create_session("sess-running", "Still running.", db_path=temp_db)
+
+    response = client.post(
+        "/api/dialogue/sess-running",
+        json={"message": "Follow-up?"},
+    )
+
+    assert response.status_code == 409
+
+
 def test_dialogue_route_returns_intent_and_persists_history(client, temp_db, monkeypatch) -> None:
     _seed_session(db_path=temp_db)
 
@@ -106,6 +117,10 @@ def test_dialogue_route_returns_intent_and_persists_history(client, temp_db, mon
     session = session_store.load_session_for_dialogue("sess-api")
     assert len(session["dialogue_history"]) == 2
     assert session["compressed_fc_context"] == "=== cached ==="
+
+    stored = session_store.get_session("sess-api", db_path=temp_db)
+    assert stored is not None
+    assert stored["status"] == "done"
 
 
 def test_dialogue_route_triggers_pipeline_for_new_claim(client, temp_db, monkeypatch) -> None:
