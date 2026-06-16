@@ -91,6 +91,16 @@ Verdict rules:
 - INSUFFICIENT_EVIDENCE: evidence is missing, vague, indirect, or too weak.
 - CONFLICTING_EVIDENCE: credible excerpts make opposing factual assertions and neither side clearly resolves it.
 
+Verdict label discipline:
+- If credible sources contradict the claim's core mechanism or predicate, use REFUTED — not INSUFFICIENT_EVIDENCE.
+- Use CONFLICTING_EVIDENCE only when credible sources make opposing factual assertions about the same predicate — not when one weak source disagrees with several authoritative ones.
+- Do not set needs_more_evidence=true when high-authority sources already resolve the core predicate.
+
+Quantitative and threshold claims:
+- When a claim includes a specific number or limit (e.g., "more than two per year"), judge the underlying factual predicate (e.g., "vaccines overload the immune system"), not only whether a study tested that exact number.
+- If multiple high-authority sources state the predicate is false or unsupported in general, return REFUTED — do not return INSUFFICIENT_EVIDENCE just because no study tested the exact threshold.
+- Use INSUFFICIENT_EVIDENCE only when evidence is genuinely absent or too weak to judge the predicate itself.
+
 Judge the Claim to verify as stated. Do not substitute a corrected version. False claims should be REFUTED when reliable evidence contradicts them.
 
 Bracketed context and frame matching:
@@ -110,6 +120,9 @@ Examples:
 - Claim: "Gold is not a commodity [under standard economic classification]"
   - Economic-classification evidence that gold is a commodity -> REFUTED within that frame.
   - Everyday usage calling gold an investment -> not REFUTED; use CONFLICTING_EVIDENCE.
+- Claim: "Vaccines overload your immune system if you take more than two in a year."
+  - CDC/GAVI excerpts: multiple vaccines do not overload the immune system -> REFUTED (general expert consensus refutes the overload predicate; exact "two per year" threshold does not need a dedicated study).
+  - INSUFFICIENT_EVIDENCE is wrong here if authoritative sources address overload generally.
 
 Set needs_more_evidence=true only when the verdict is INSUFFICIENT_EVIDENCE and a targeted search could resolve a missing aspect.
 Use 1-based source numbers for influential_sources.
@@ -127,4 +140,9 @@ Evidence:
 {evidence}
 
 Return only the JSON object.
+"""
+
+EVIDENCE_EVALUATOR_REMINDER = """
+Reminder: Judge the core factual predicate. False claims with authoritative contradictory
+evidence → REFUTED. Do not require exact numeric thresholds to appear in sources.
 """

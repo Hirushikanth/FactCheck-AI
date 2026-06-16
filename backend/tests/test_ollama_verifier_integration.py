@@ -62,3 +62,16 @@ async def test_ollama_verifier_returns_verdict_for_obscure_claim() -> None:
         "CONFLICTING_EVIDENCE",
     )
     assert result["claim"]
+
+
+@pytest.mark.integration
+async def test_ollama_verifier_refutes_vaccine_overload_claim() -> None:
+    if os.environ.get("RUN_OLLAMA_INTEGRATION") != "1":
+        pytest.skip("Set RUN_OLLAMA_INTEGRATION=1 to run Ollama-backed verifier tests.")
+
+    result = await run_verifier(
+        _claim("Vaccines overload your immune system if you take more than two in a year.")
+    )
+
+    assert result["verdict"] in ("REFUTED", "CONFLICTING_EVIDENCE")
+    assert result["claim"]

@@ -110,6 +110,116 @@ def test_verifier_query_prompt_includes_botanical_source_framing() -> None:
     assert _BERRIES_CLAIM in human_prompt
 
 
+def test_evaluator_prompt_includes_quantitative_threshold_rules() -> None:
+    prompt = verifier_prompts.EVIDENCE_EVALUATOR_SYSTEM_PROMPT.casefold()
+    assert "quantitative" in prompt or "threshold" in prompt
+    assert "underlying factual predicate" in prompt
+    assert "vaccines overload your immune system" in prompt
+
+
+def test_evaluator_human_prompt_includes_recency_reminder() -> None:
+    state = VerifierState(
+        claim_text="A test claim.",
+        evidence=[
+            EvidenceItem(
+                url="https://example.com",
+                snippet="Some evidence.",
+            )
+        ],
+    )
+
+    human_prompt = _evaluation_messages(state)[-1][1]
+
+    assert verifier_prompts.EVIDENCE_EVALUATOR_REMINDER.strip() in human_prompt
+    assert "exact numeric thresholds" in human_prompt.casefold()
+
+
+_VACCINE_CLAIM = (
+    "Vaccines overload your immune system if you take more than two in a year."
+)
+
+
+def _vaccine_contradiction_evidence() -> list[EvidenceItem]:
+    return [
+        EvidenceItem(
+            url="https://www.cdc.gov/vaccine-safety/about/multiples.html",
+            title="CDC vaccine safety",
+            snippet="Receiving multiple vaccines at once does not overload the immune system.",
+            credibility_tier="high",
+            relevance_score=0.9,
+        ),
+        EvidenceItem(
+            url="https://www.gavi.org/vaccineswork/do-multiple-vaccines-overload-childs-immune-system",
+            title="GAVI",
+            snippet="Multiple vaccines do not overload a child's immune system according to science.",
+            credibility_tier="high",
+            relevance_score=0.85,
+        ),
+    ]
+
+
+async def test_evidence_evaluator_guardrail_upgrades_insufficient_to_refuted(
+    monkeypatch,
+) -> None:
+    async def fake_structured_call(*, llm, output_class, messages, context_desc=""):
+        return EvaluationOutput(
+            verdict="INSUFFICIENT_EVIDENCE",
+            confidence=0.8,
+            reasoning="No study tests the exact threshold of more than two per year.",
+            needs_more_evidence=True,
+            missing_aspects=["exact threshold study for two vaccines per year"],
+            influential_sources=[],
+        )
+
+    monkeypatch.setattr(evidence_evaluator, "get_verifier_llm", lambda **kwargs: object())
+    monkeypatch.setattr(evidence_evaluator, "call_llm_with_structured_output", fake_structured_call)
+
+    result = await evidence_evaluator_node(
+        VerifierState(
+            claim_text=_VACCINE_CLAIM,
+            evidence=_vaccine_contradiction_evidence(),
+            iteration_count=4,
+            max_iterations=5,
+        )
+    )
+
+    assert result["claim_result"]["verdict"] == "REFUTED"
+    assert result["claim_result"]["confidence"] >= 0.75
+    assert result["intermediate_assessment"].needs_more_evidence is False
+    assert "iteration_count" not in result
+
+
+async def test_evidence_evaluator_guardrail_stops_threshold_retry_trap(monkeypatch) -> None:
+    call_count = 0
+
+    async def fake_structured_call(*, llm, output_class, messages, context_desc=""):
+        nonlocal call_count
+        call_count += 1
+        return EvaluationOutput(
+            verdict="INSUFFICIENT_EVIDENCE",
+            confidence=0.8,
+            reasoning="Evidence contains conflicting information about overload.",
+            needs_more_evidence=True,
+            missing_aspects=["exact threshold of more than two vaccines per year"],
+            influential_sources=[],
+        )
+
+    monkeypatch.setattr(evidence_evaluator, "get_verifier_llm", lambda **kwargs: object())
+    monkeypatch.setattr(evidence_evaluator, "call_llm_with_structured_output", fake_structured_call)
+
+    result = await evidence_evaluator_node(
+        VerifierState(
+            claim_text=_VACCINE_CLAIM,
+            evidence=_vaccine_contradiction_evidence(),
+            iteration_count=1,
+            max_iterations=5,
+        )
+    )
+
+    assert result["claim_result"]["verdict"] == "REFUTED"
+    assert call_count == 2
+
+
 async def test_evidence_evaluator_passes_through_llm_verdict_without_guardrail(monkeypatch) -> None:
     async def fake_structured_call(*, llm, output_class, messages, context_desc=""):
         return EvaluationOutput(
