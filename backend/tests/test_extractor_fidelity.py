@@ -391,12 +391,12 @@ async def test_validation_keeps_complete_false_claim_when_llm_rejects_it(monkeyp
     async def fake_structured_call(*, llm, output_class, messages, context_desc=""):
         assert output_class is ValidationOutput
         return ValidationOutput(
-            reasoning="Truth-biased model incorrectly rejects the sentence.",
             is_complete_declarative=False,
+            reasoning="Truth-biased model incorrectly rejects the sentence.",
         )
 
-    monkeypatch.setattr(validation, "call_llm_with_structured_output", fake_structured_call)
-    monkeypatch.setattr(validation, "get_extractor_llm", lambda temperature: object())
+    monkeypatch.setattr(validation, "call_extractor_structured_output", fake_structured_call)
+    monkeypatch.setattr(validation, "get_extractor_llm", lambda **kwargs: object())
 
     state = ExtractorState(
         raw_input="The pyramids were built by aliens",

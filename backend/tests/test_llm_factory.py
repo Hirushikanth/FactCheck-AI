@@ -73,3 +73,25 @@ def test_get_reporter_llm_applies_reporter_runtime_options(monkeypatch) -> None:
     assert captured["temperature"] == 0.1
     assert captured["num_ctx"] == 2048
     assert captured["num_predict"] == 512
+
+
+def test_get_extractor_llm_applies_num_predict_and_num_ctx(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    class FakeChatOllama:
+        def __init__(self, **kwargs: object) -> None:
+            captured.update(kwargs)
+
+    monkeypatch.setattr(factory, "ChatOllama", FakeChatOllama)
+
+    llm = factory.get_extractor_llm(
+        temperature=0.2,
+        num_ctx=8192,
+        num_predict=512,
+        settings=AppSettings(ollama_num_ctx=8192, _env_file=None),
+    )
+
+    assert isinstance(llm, FakeChatOllama)
+    assert captured["temperature"] == 0.2
+    assert captured["num_ctx"] == 8192
+    assert captured["num_predict"] == 512

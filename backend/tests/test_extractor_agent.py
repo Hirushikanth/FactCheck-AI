@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from factcheck.agents import extractor
 from factcheck.agents.extractor import extractor_node
-from factcheck.extractor.schemas import ValidatedClaim
+from factcheck.extractor import ExtractorRunResult
+from factcheck.extractor.schemas import ExtractorStageFailure, ValidatedClaim
 
 
 def _state(raw_input: str):
@@ -42,9 +43,12 @@ async def test_extractor_node_writes_ordered_case_insensitive_unique_claims(monk
         original_index=1,
     )
 
-    async def fake_run_extractor(raw_input: str) -> list[ValidatedClaim]:
+    async def fake_run_extractor(raw_input: str) -> ExtractorRunResult:
         assert raw_input == "Ada wrote the first algorithm."
-        return [first_claim, duplicate_claim, second_claim]
+        return ExtractorRunResult(
+            claims=[first_claim, duplicate_claim, second_claim],
+            stage_failures=[],
+        )
 
     monkeypatch.setattr(extractor, "run_extractor", fake_run_extractor)
 
@@ -57,3 +61,37 @@ async def test_extractor_node_writes_ordered_case_insensitive_unique_claims(monk
             second_claim,
         ],
     }
+
+
+async def test_extractor_node_emits_stage_failed_sse(monkeypatch) -> None:
+    pushed: list[tuple[str, str, dict]] = []
+
+    async def capture_push(session_id: str, event: str, data: dict) -> None:
+        pushed.append((session_id, event, data))
+
+    failure = ExtractorStageFailure(
+        stage="selection",
+        sentence="the earth is flat",
+        reason="voting_failed",
+        successes=1,
+        attempts=3,
+    )
+
+    async def fake_run_extractor(raw_input: str) -> ExtractorRunResult:
+        return ExtractorRunResult(claims=[], stage_failures=[failure])
+
+    monkeypatch.setattr(extractor, "run_extractor", fake_run_extractor)
+    monkeypatch.setattr(extractor, "push_event", capture_push)
+
+    await extractor_node(_state("the earth is flat"))
+
+    assert len(pushed) == 1
+    session_id, event_name, payload = pushed[0]
+    assert session_id == "test-session"
+    assert event_name == "extractor_stage_failed"
+    assert payload["stage"] == "selection"
+    assert payload["sentence"] == "the earth is flat"
+    assert payload["reason"] == "voting_failed"
+    assert payload["successes"] == 1
+    assert payload["attempts"] == 3
+    assert "timestamp" in payload

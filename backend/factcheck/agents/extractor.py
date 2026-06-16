@@ -2,19 +2,16 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from factcheck.extractor import run_extractor
 from factcheck.extractor.schemas import ValidatedClaim
+from factcheck.graph.event_bus import push_event
 from factcheck.state import FactCheckState
 
 
 def _unique_claims(claims: list[ValidatedClaim]) -> list[ValidatedClaim]:
-    """Dedupe claims case-insensitively while preserving first-seen order.
-
-    This is a safety-net deduplication layer. Primary deduplication occurs in
-    validation_node. This catches edge cases where duplicates survive validation
-    (e.g., after fidelity fallbacks produce identical text for multiple sources).
-    """
-
+    """Dedupe claims case-insensitively while preserving first-seen order."""
     unique: list[ValidatedClaim] = []
     seen: set[str] = set()
     for claim in claims:
@@ -32,8 +29,31 @@ def _unique_claims(claims: list[ValidatedClaim]) -> list[ValidatedClaim]:
     return unique
 
 
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
 async def extractor_node(state: FactCheckState) -> dict[str, list[ValidatedClaim] | str]:
     """Populate extracted claims from the raw user input."""
 
-    claims = await run_extractor(state["raw_input"])
-    return {"current_agent": "extractor", "extracted_claims": _unique_claims(claims)}
+    session_id = state["session_id"]
+    result = await run_extractor(state["raw_input"])
+
+    for failure in result.stage_failures:
+        await push_event(
+            session_id,
+            "extractor_stage_failed",
+            {
+                "stage": failure.stage,
+                "sentence": failure.sentence,
+                "reason": failure.reason,
+                "successes": failure.successes,
+                "attempts": failure.attempts,
+                "timestamp": _now_iso(),
+            },
+        )
+
+    return {
+        "current_agent": "extractor",
+        "extracted_claims": _unique_claims(result.claims),
+    }

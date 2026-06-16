@@ -11,8 +11,8 @@ from pydantic import BaseModel, Field, field_validator
 from factcheck.extractor.config import VALIDATION_CONFIG
 from factcheck.extractor.prompts import VALIDATION_HUMAN_PROMPT, VALIDATION_SYSTEM_PROMPT
 from factcheck.extractor.schemas import ExtractorState, PotentialClaim, ValidatedClaim
+from factcheck.llm.extractor_structured import call_extractor_structured_output
 from factcheck.llm.factory import get_extractor_llm
-from factcheck.llm.structured import call_llm_with_structured_output
 
 
 logger = logging.getLogger(__name__)
@@ -62,11 +62,12 @@ _FRAGMENT_STARTS = {
 class ValidationOutput(BaseModel):
     """Structured output for claim validation."""
 
-    reasoning: str = Field(
-        description="Step-by-step analysis of whether the claim is a complete declarative sentence."
-    )
     is_complete_declarative: bool = Field(
         description="True if the claim is a complete, declarative sentence in isolation."
+    )
+    reasoning: str = Field(
+        default="",
+        description="Brief explanation of the validation decision.",
     )
 
     @field_validator("reasoning", mode="before")
@@ -95,8 +96,12 @@ def _looks_like_complete_declarative(claim_text: str) -> bool:
 
 
 async def _validate_claim(potential_claim: PotentialClaim) -> ValidatedClaim:
-    llm = get_extractor_llm(temperature=VALIDATION_CONFIG["temperature"])
-    response = await call_llm_with_structured_output(
+    llm = get_extractor_llm(
+        temperature=VALIDATION_CONFIG["temperature"],
+        num_predict=VALIDATION_CONFIG["num_predict"],
+        num_ctx=VALIDATION_CONFIG["num_ctx"],
+    )
+    response = await call_extractor_structured_output(
         llm=llm,
         output_class=ValidationOutput,
         messages=[
@@ -123,7 +128,7 @@ async def validation_node(state: ExtractorState) -> dict[str, list[ValidatedClai
         return {"validated_claims": []}
 
     # asyncio.gather schedules all coroutines concurrently, but the semaphore
-    # inside call_llm_with_structured_output (factcheck.llm.concurrency) means
+    # inside call_extractor_structured_output (factcheck.llm.concurrency) means
     # at most OLLAMA_CONCURRENCY requests reach Ollama at any one time.
     validation_results = await asyncio.gather(
         *(_validate_claim(claim) for claim in state.potential_claims)

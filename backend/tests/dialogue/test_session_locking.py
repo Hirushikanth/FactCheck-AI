@@ -15,7 +15,7 @@ from factcheck.dialogue import service as dialogue_service
 def temp_db(tmp_path, monkeypatch):
     db_path = tmp_path / "test.db"
     monkeypatch.setattr(session_store, "DEFAULT_DB_PATH", db_path)
-    settings = AppSettings(dev_stream_enabled=False, sqlite_path=str(db_path), _env_file=None)
+    settings = AppSettings(sqlite_path=str(db_path), _env_file=None)
     monkeypatch.setattr("factcheck.config.get_settings", lambda: settings)
     session_store.ensure_dialogue_tables(db_path)
     return db_path

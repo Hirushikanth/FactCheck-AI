@@ -30,7 +30,7 @@ flowchart TB
     Search --> Serper[Serper Optional]
 ```
 
-The React frontend is planned. Today, clients interact with the FastAPI layer directly (curl, dev hack terminal, or a future frontend).
+The React frontend is planned. Today, clients interact with the FastAPI layer directly (curl, the dev console, or a future frontend).
 
 ## Agent Pipeline
 

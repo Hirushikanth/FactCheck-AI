@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from factcheck.extractor import graph as extractor_graph
-from factcheck.extractor import run_extractor
+from factcheck.extractor import ExtractorRunResult, run_extractor
 from factcheck.extractor.graph import build_extractor_graph
 from factcheck.extractor.schemas import (
     ContextualSentence,
@@ -113,4 +113,20 @@ async def test_run_extractor_returns_validated_claims(monkeypatch) -> None:
 
     monkeypatch.setattr(extractor_graph, "build_extractor_graph", lambda: FakeExtractorGraph())
 
-    assert await run_extractor("Ada wrote the first algorithm.") == [validated_claim]
+    result = await run_extractor("Ada wrote the first algorithm.")
+    assert result.claims == [validated_claim]
+    assert result.stage_failures == []
+
+
+def test_extractor_run_result_is_iterable_over_claims() -> None:
+    claim = ValidatedClaim(
+        claim_text="Ada Lovelace wrote the first algorithm.",
+        is_complete_declarative=True,
+        disambiguated_sentence="Ada Lovelace wrote the first algorithm.",
+        original_sentence="Ada wrote the first algorithm.",
+        original_index=0,
+    )
+    result = ExtractorRunResult(claims=[claim], stage_failures=[])
+
+    assert list(result) == [claim]
+    assert len(result) == 1

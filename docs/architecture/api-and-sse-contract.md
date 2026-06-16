@@ -14,7 +14,6 @@ This document records the implemented REST and Server-Sent Events contract for t
 | `GET` | `/api/sessions` | none | `list[SessionSummary]` | Implemented |
 | `DELETE` | `/api/sessions/{id}` | none | `{ "deleted": true }` | Implemented |
 | `POST` | `/api/dialogue/{session_id}` | `{ "message": "string" }` | `DialogueResponse` | Implemented |
-| `POST` | `/api/dev/extractor/stream` | `{ "input": "string", "metadata": "string \| null" }` | SSE event stream | Dev only |
 
 ### Health Response
 
@@ -24,7 +23,7 @@ This document records the implemented REST and Server-Sent Events contract for t
   "ollama_reachable": true,
   "model_loaded": true,
   "ollama_base_url": "http://localhost:11434",
-  "ollama_model": "mistral:7b"
+  "ollama_model": "gemma4"
 }
 ```
 
@@ -53,10 +52,6 @@ This document records the implemented REST and Server-Sent Events contract for t
 | `new_claim_text` | `string \| null` | New claim text if a fact-check is needed |
 | `error` | `string \| null` | Error message on failure |
 
-### Dev Extractor Stream
-
-`POST /api/dev/extractor/stream` is only registered when `DEV_STREAM_ENABLED=true`. It streams extractor subgraph node updates for local debugging. See [`docs/dev/hack-terminal.md`](../dev/hack-terminal.md).
-
 ## SSE Event Types
 
 Events are pushed to the session queue and consumed via `GET /api/sessions/{id}/stream`.
@@ -65,6 +60,7 @@ Events are pushed to the session queue and consumed via `GET /api/sessions/{id}/
 |---|---|---|---|
 | `agent_start` | `{ "agent": "string", "timestamp": "ISO8601" }` | Pipeline runner, dialogue runner | An agent begins work (`extractor`, `verifier`, `reporter`, or `dialogue`). |
 | `claim_found` | `{ "claim": "string", "index": 0, "total": 1 }` | Pipeline runner | Extractor identifies a claim. |
+| `extractor_stage_failed` | `{ "stage": "string", "sentence": "string", "reason": "string", "successes": 0, "attempts": 0, "timestamp": "ISO8601" }` | Extractor agent | A sentence was dropped during selection, disambiguation, or decomposition. |
 | `verdict_ready` | `{ "claim": "string", "verdict": "string", "confidence": 0.0, "index": 0, "total": 1 }` | Verifier agent | Verifier completes one claim (emitted per claim during parallel verification). |
 | `report_ready` | `{ "final_report": "string" }` | Pipeline runner | Reporter completes the report. |
 | `pipeline_done` | `{ "session_id": "string", "duration_seconds": 0.0 }` | Pipeline runner, dialogue runner | Pipeline or dialogue turn completes. |

@@ -16,20 +16,20 @@ from factcheck.extractor.nodes.validation import ValidationOutput, validation_no
 from factcheck.extractor.schemas import ContextualSentence, ExtractorState, PotentialClaim, SelectedContent
 
 
-def test_extractor_outputs_start_with_reasoning_field() -> None:
-    assert list(ValidationOutput.model_fields) == ["reasoning", "is_complete_declarative"]
+def test_extractor_outputs_start_with_decision_fields() -> None:
+    assert list(ValidationOutput.model_fields) == ["is_complete_declarative", "reasoning"]
     assert list(SelectionOutput.model_fields) == [
-        "reasoning",
-        "processed_sentence",
         "no_verifiable_claims",
         "remains_unchanged",
+        "processed_sentence",
+        "reasoning",
     ]
     assert list(DisambiguationOutput.model_fields) == [
-        "reasoning",
-        "disambiguated_sentence",
         "cannot_be_disambiguated",
+        "disambiguated_sentence",
+        "reasoning",
     ]
-    assert list(DecompositionOutput.model_fields) == ["reasoning", "claims", "no_claims"]
+    assert list(DecompositionOutput.model_fields) == ["no_claims", "claims", "reasoning"]
 
 
 def test_extractor_outputs_normalize_reasoning_lists_to_strings() -> None:
@@ -37,24 +37,24 @@ def test_extractor_outputs_normalize_reasoning_lists_to_strings() -> None:
 
     outputs = [
         ValidationOutput(
-            reasoning=["step one", "step two"],
             is_complete_declarative=True,
+            reasoning=["step one", "step two"],
         ),
         SelectionOutput(
-            reasoning=["step one", "step two"],
-            processed_sentence="Ada Lovelace wrote notes.",
             no_verifiable_claims=False,
             remains_unchanged=True,
+            processed_sentence="Ada Lovelace wrote notes.",
+            reasoning=["step one", "step two"],
         ),
         DisambiguationOutput(
-            reasoning=["step one", "step two"],
-            disambiguated_sentence="Ada Lovelace wrote notes.",
             cannot_be_disambiguated=False,
+            disambiguated_sentence="Ada Lovelace wrote notes.",
+            reasoning=["step one", "step two"],
         ),
         DecompositionOutput(
-            reasoning=["step one", "step two"],
-            claims=["Ada Lovelace wrote notes."],
             no_claims=False,
+            claims=["Ada Lovelace wrote notes."],
+            reasoning=["step one", "step two"],
         ),
     ]
 
@@ -134,12 +134,12 @@ async def test_validation_node_filters_invalid_and_duplicate_claims(monkeypatch)
     async def fake_structured_call(*, llm, output_class, messages, context_desc=""):
         claim_text = messages[-1][1]
         return ValidationOutput(
-            reasoning="Test stub reasoning.",
             is_complete_declarative="Fragment" not in claim_text,
+            reasoning="Test stub reasoning.",
         )
 
-    monkeypatch.setattr(validation, "call_llm_with_structured_output", fake_structured_call)
-    monkeypatch.setattr(validation, "get_extractor_llm", lambda temperature: object())
+    monkeypatch.setattr(validation, "call_extractor_structured_output", fake_structured_call)
+    monkeypatch.setattr(validation, "get_extractor_llm", lambda **kwargs: object())
 
     state = ExtractorState(
         raw_input="",
@@ -193,7 +193,7 @@ async def test_disambiguation_skips_existential_there(monkeypatch) -> None:
     async def fail_if_called(*args, **kwargs):
         raise AssertionError("LLM should not be called for existential there")
 
-    monkeypatch.setattr(disambiguation, "call_llm_with_structured_output", fail_if_called)
+    monkeypatch.setattr(disambiguation, "call_extractor_structured_output", fail_if_called)
     preceding_context_item = ContextualSentence(
         original_sentence="There is strong evidence of vaccine effectiveness.",
         context_for_llm=(
@@ -218,7 +218,7 @@ async def test_disambiguation_passes_through_self_contained_sentence(monkeypatch
     async def fail_if_called(*args, **kwargs):
         raise AssertionError("LLM should not be called for self-contained sentence")
 
-    monkeypatch.setattr(disambiguation, "call_llm_with_structured_output", fail_if_called)
+    monkeypatch.setattr(disambiguation, "call_extractor_structured_output", fail_if_called)
     preceding_context_item = ContextualSentence(
         original_sentence="Ada Lovelace wrote notes about Charles Babbage's Analytical Engine.",
         context_for_llm=(

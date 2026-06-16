@@ -16,8 +16,8 @@ from factcheck.extractor.utils.fidelity import (
     assess_claim_fidelity,
     assess_group_coverage,
 )
+from factcheck.llm.extractor_structured import call_extractor_structured_output
 from factcheck.llm.factory import get_extractor_llm
-from factcheck.llm.structured import call_llm_with_structured_output
 
 
 logger = logging.getLogger(__name__)
@@ -26,8 +26,8 @@ logger = logging.getLogger(__name__)
 class FidelityAuditOutput(BaseModel):
     """Structured output for the optional LLM fidelity audit."""
 
-    reasoning: str = Field(description="Explanation of whether the claim preserves the source.")
     faithful: bool
+    reasoning: str = Field(default="", description="Brief explanation of the fidelity decision.")
 
     @field_validator("reasoning", mode="before")
     @classmethod
@@ -40,8 +40,12 @@ class FidelityAuditOutput(BaseModel):
 async def _audit_claim_fidelity(potential_claim: PotentialClaim) -> bool:
     """Use the extractor LLM only for borderline source/claim fidelity cases."""
 
-    llm = get_extractor_llm(temperature=FIDELITY_CONFIG["temperature"])
-    response = await call_llm_with_structured_output(
+    llm = get_extractor_llm(
+        temperature=FIDELITY_CONFIG["temperature"],
+        num_predict=FIDELITY_CONFIG["num_predict"],
+        num_ctx=FIDELITY_CONFIG["num_ctx"],
+    )
+    response = await call_extractor_structured_output(
         llm=llm,
         output_class=FidelityAuditOutput,
         messages=[

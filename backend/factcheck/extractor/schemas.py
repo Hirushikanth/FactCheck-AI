@@ -52,6 +52,16 @@ class ValidatedClaim(BaseModel):
     fidelity_status: Literal["faithful", "fallback"] = "faithful"
 
 
+class ExtractorStageFailure(BaseModel):
+    """Records a sentence dropped during an extractor LLM stage."""
+
+    stage: Literal["selection", "disambiguation", "decomposition"]
+    sentence: str
+    reason: Literal["voting_failed", "parse_failed", "no_output"]
+    successes: int
+    attempts: int
+
+
 class ExtractorState(BaseModel):
     """State object used inside the extractor subgraph."""
 
@@ -62,4 +72,5 @@ class ExtractorState(BaseModel):
     disambiguated_contents: list[DisambiguatedContent] = Field(default_factory=list)
     potential_claims: list[PotentialClaim] = Field(default_factory=list)
     validated_claims: list[ValidatedClaim] = Field(default_factory=list)
+    stage_failures: list[ExtractorStageFailure] = Field(default_factory=list)
     metadata: str | None = None

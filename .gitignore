@@ -116,8 +116,9 @@ frontend/.env.local
 frontend/.env.*.local
 
 # --- Local development UIs ---------------------------------------------------
-# Temporary SSE debug terminal — see docs/dev/hack-terminal.md
-dev-hack-terminal/
+# Temporary dev console — local-only, not part of the repo
+dev-console/
+docs/dev/console.md
 
 # --- Local audit notes -----------------------------
 docs/audit/

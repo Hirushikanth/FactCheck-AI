@@ -22,7 +22,7 @@ The backend runs a LangGraph multi-agent pipeline behind a FastAPI API layer, wi
 - Python 3.11+
 - Poetry 1.8+
 - Git
-- Ollama with `mistral:7b`
+- Ollama with `gemma4`
 
 Node.js 20+ is checked by `./scripts/verify_toolchain.sh` for the planned frontend; it is not required to run the backend today.
 
@@ -37,7 +37,7 @@ Verify the local toolchain:
 Mode A runs Ollama on this MacBook:
 
 ```bash
-ollama pull mistral:7b
+ollama pull gemma4
 ollama serve
 ```
 
@@ -47,7 +47,7 @@ Use:
 OLLAMA_BASE_URL=http://localhost:11434
 ```
 
-Mode B runs Ollama on a Windows PC connected to the same local network. On the Windows host, set `OLLAMA_HOST=0.0.0.0`, allow inbound TCP port `11434`, pull `mistral:7b`, then set the MacBook backend `.env` to:
+Mode B runs Ollama on a Windows PC connected to the same local network. On the Windows host, set `OLLAMA_HOST=0.0.0.0`, allow inbound TCP port `11434`, pull `gemma4`, then set the MacBook backend `.env` to:
 
 ```bash
 OLLAMA_BASE_URL=http://<windows-lan-ip>:11434
@@ -64,7 +64,7 @@ Copy `backend/.env.example` to `backend/.env` and adjust as needed. All variable
 | Variable | Default | Purpose |
 |---|---|---|
 | `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama host (local or LAN) |
-| `OLLAMA_MODEL` | `mistral:7b` | Model name |
+| `OLLAMA_MODEL` | `gemma4` | Model name |
 | `OLLAMA_TEMPERATURE` | `0.0` | Generation temperature |
 | `OLLAMA_TIMEOUT` | `120` | Request timeout (seconds) |
 | `OLLAMA_MAX_RETRIES` | `3` | Retry count |
@@ -78,7 +78,6 @@ Copy `backend/.env.example` to `backend/.env` and adjust as needed. All variable
 | `DDG_MIN_REQUEST_INTERVAL` | `1.5` | DDG minimum spacing between requests |
 | `TAVILY_API_KEY` | (empty) | Optional Tavily search API key |
 | `SERPER_API_KEY` | (empty) | Optional Serper search API key |
-| `DEV_STREAM_ENABLED` | `false` | Enable dev extractor SSE endpoint |
 | `DEV_CORS_ORIGINS` | `http://localhost:5173,...` | CORS allowed origins |
 | `SQLITE_PATH` | `factcheck_ai.db` | SQLite database path |
 | `DEBUG` | `false` | Debug flag |
@@ -113,7 +112,7 @@ Expected shape:
   "ollama_reachable": true,
   "model_loaded": true,
   "ollama_base_url": "http://localhost:11434",
-  "ollama_model": "mistral:7b"
+  "ollama_model": "gemma4"
 }
 ```
 
@@ -177,9 +176,19 @@ Run optional Ollama-backed integration tests (requires a running Ollama instance
 RUN_OLLAMA_INTEGRATION=1 poetry run pytest -m integration
 ```
 
-## Dev Hack Terminal
+## Dev Console
 
-A temporary local UI for watching extractor subgraph SSE output is available when `DEV_STREAM_ENABLED=true`. See [`docs/dev/hack-terminal.md`](docs/dev/hack-terminal.md).
+A temporary local UI for testing the full session flow (claim → SSE → report → follow-up). The `dev-console/` folder is gitignored and kept only on your machine for development.
+
+```bash
+# Terminal 1 — backend
+cd backend && poetry run uvicorn app.main:app --reload
+
+# Terminal 2 — dev console (local folder, not in git)
+cd dev-console && python3 -m http.server 8080
+```
+
+Open `http://localhost:8080`. Ensure `DEV_CORS_ORIGINS` in `backend/.env` includes `http://localhost:8080`.
 
 ## Project Structure
 
@@ -188,7 +197,7 @@ A temporary local UI for watching extractor subgraph SSE output is available whe
 ├── backend/
 │   ├── app/
 │   │   ├── main.py                  # FastAPI entry point (v0.6.0)
-│   │   └── routers/                 # sessions, dialogue, dev_stream
+│   │   └── routers/                 # sessions, dialogue
 │   └── factcheck/
 │       ├── agents/                  # orchestrator, extractor, verifier, reporter
 │       ├── config.py                # AppSettings from .env
@@ -204,7 +213,6 @@ A temporary local UI for watching extractor subgraph SSE output is available whe
 ├── docs/
 │   ├── architecture/              # system overview, state schema, API contract
 │   ├── decisions/                 # ADRs
-│   ├── dev/                       # hack-terminal docs
 │   └── setup/                     # Ollama runbook
 └── scripts/
     ├── smoke_ollama.py

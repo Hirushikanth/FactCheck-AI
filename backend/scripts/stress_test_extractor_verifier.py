@@ -75,7 +75,7 @@ async def main() -> int:
     print("=" * 72)
     print("EXTRACTOR → VERIFIER INTEGRATION TEST")
     print(f"Ollama: {os.environ.get('OLLAMA_BASE_URL', 'http://localhost:11434')}")
-    print(f"Model:  {os.environ.get('OLLAMA_MODEL', 'mistral:7b')}")
+    print(f"Model:  {os.environ.get('OLLAMA_MODEL', 'gemma4')}")
     print("=" * 72)
 
     total_claims = 0
@@ -94,7 +94,8 @@ async def main() -> int:
 
         extract_start = time.perf_counter()
         try:
-            claims = await run_extractor(raw_input)
+            result = await run_extractor(raw_input)
+            claims = result.claims
         except Exception as exc:
             errors += 1
             print(f"EXTRACTOR ERROR ({time.perf_counter() - extract_start:.1f}s): {exc}")

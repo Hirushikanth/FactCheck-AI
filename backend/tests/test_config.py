@@ -18,7 +18,6 @@ def test_settings_defaults_support_local_ollama(monkeypatch) -> None:
         "DDG_MIN_REQUEST_INTERVAL",
         "TAVILY_API_KEY",
         "SERPER_API_KEY",
-        "DEV_STREAM_ENABLED",
         "DEV_CORS_ORIGINS",
         "DEBUG",
     ):
@@ -27,7 +26,7 @@ def test_settings_defaults_support_local_ollama(monkeypatch) -> None:
     settings = AppSettings(_env_file=None)
 
     assert str(settings.ollama_base_url) == "http://localhost:11434"
-    assert settings.ollama_model == "mistral:7b"
+    assert settings.ollama_model == "gemma4"
     assert settings.ollama_temperature == 0.0
     assert settings.ollama_timeout == 120
     assert settings.ollama_max_retries == 3
@@ -41,7 +40,6 @@ def test_settings_defaults_support_local_ollama(monkeypatch) -> None:
     assert settings.ddg_min_request_interval == 1.5
     assert settings.tavily_api_key is None
     assert settings.serper_api_key is None
-    assert settings.dev_stream_enabled is False
     assert settings.dev_cors_origins == (
         "http://localhost:5173,http://127.0.0.1:5173,http://localhost:8080"
     )

@@ -205,6 +205,29 @@ async def test_process_with_voting_parallelizes_items() -> None:
     assert max_in_flight >= 2
 
 
+async def test_process_with_voting_records_failure_callback() -> None:
+    failures: list[tuple[str, int, int]] = []
+
+    async def processor(item, llm):
+        return False, None
+
+    def on_failure(item, successes, attempts):
+        failures.append((item, successes, attempts))
+
+    results = await process_with_voting(
+        items=["dropped sentence"],
+        processor=processor,
+        llm=object(),
+        completions=3,
+        min_successes=2,
+        result_factory=lambda value, item: value,
+        on_failure=on_failure,
+    )
+
+    assert results == []
+    assert failures == [("dropped sentence", 0, 3)]
+
+
 async def test_structured_llm_helper_returns_parsed_model() -> None:
     response = DemoOutput(value="parsed")
 

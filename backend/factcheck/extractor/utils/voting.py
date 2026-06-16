@@ -17,13 +17,11 @@ ResultT = TypeVar("ResultT")
 
 Processor = Callable[[T, object], Awaitable[tuple[bool, R | None]]]
 ResultFactory = Callable[[R, T], ResultT | None]
+FailureCallback = Callable[[object, int, int], None]
 
 
 def _normalize_for_comparison(text: str) -> str:
-    """Normalize text for majority vote comparison.
-
-    Two sentences are treated as the same vote when their normalized forms match.
-    """
+    """Normalize text for majority vote comparison."""
     return text.strip().lower().rstrip(".,;:!?").strip()
 
 
@@ -35,12 +33,9 @@ async def _majority_vote_single_item(
     completions: int,
     min_successes: int,
     result_factory: ResultFactory[R, ResultT],
+    on_failure: FailureCallback | None = None,
 ) -> ResultT | None:
-    """Run all completions, then pick the majority result.
-
-    Unlike threshold-based early stopping, this runs every completion and
-    accepts the output only when at least ``min_successes`` responses agree.
-    """
+    """Run all completions, then pick the majority result."""
     all_results: list[R] = []
 
     for _ in range(completions):
@@ -54,6 +49,8 @@ async def _majority_vote_single_item(
             len(all_results),
             completions,
         )
+        if on_failure is not None:
+            on_failure(item, len(all_results), completions)
         return None
 
     if all_results and isinstance(all_results[0], str):
@@ -68,6 +65,8 @@ async def _majority_vote_single_item(
                 completions,
                 most_common_normalized[:50],
             )
+            if on_failure is not None:
+                on_failure(item, count, completions)
             return None
         for r in all_results:
             if _normalize_for_comparison(str(r)) == most_common_normalized:
@@ -76,6 +75,8 @@ async def _majority_vote_single_item(
     if len(all_results) >= min_successes:
         return result_factory(all_results[0], item)
 
+    if on_failure is not None:
+        on_failure(item, len(all_results), completions)
     return None
 
 
@@ -87,14 +88,9 @@ async def process_with_voting(
     completions: int,
     min_successes: int,
     result_factory: ResultFactory[R, ResultT],
+    on_failure: FailureCallback | None = None,
 ) -> list[ResultT]:
-    """Process items with majority voting across multiple completions.
-
-    All completions run before voting occurs. The most common output wins if it
-    meets the ``min_successes`` threshold. For string outputs, normalized string
-    comparison determines majority. For structured outputs, falls back to
-    threshold-based selection.
-    """
+    """Process items with majority voting across multiple completions."""
     gathered = await asyncio.gather(
         *(
             _majority_vote_single_item(
@@ -104,6 +100,7 @@ async def process_with_voting(
                 completions=completions,
                 min_successes=min_successes,
                 result_factory=result_factory,
+                on_failure=on_failure,
             )
             for item in items
         )

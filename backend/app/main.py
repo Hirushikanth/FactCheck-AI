@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.routers import dev_stream, dialogue, sessions
+from app.routers import dialogue, sessions
 from factcheck.config import AppSettings, get_settings
 from factcheck.db.session_store import ensure_dialogue_tables
 from factcheck.llm.ollama import check_ollama_health
@@ -42,9 +42,6 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
 
     app.include_router(sessions.router)
     app.include_router(dialogue.router)
-
-    if resolved_settings.dev_stream_enabled:
-        app.include_router(dev_stream.router)
 
     @app.get("/api/health")
     async def health() -> dict[str, bool | str]:
