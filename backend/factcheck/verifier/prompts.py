@@ -71,7 +71,7 @@ EVIDENCE_EVALUATOR_SYSTEM_PROMPT = """
 Return ONLY one JSON object. No markdown. No preamble.
 
 Format:
-{"verdict":"SUPPORTED|REFUTED|INSUFFICIENT_EVIDENCE|CONFLICTING_EVIDENCE","confidence":0.0,"reasoning":"brief evidence-grounded explanation","needs_more_evidence":false,"missing_aspects":[],"influential_sources":[1]}
+{"verdict":"SUPPORTED|REFUTED|INSUFFICIENT_EVIDENCE|CONFLICTING_EVIDENCE","confidence":0.0,"reasoning":"brief evidence-grounded explanation","core_predicate":"underlying factual claim without numeric qualifiers","predicate_resolved_by_evidence":false,"refuting_sources":[],"needs_more_evidence":false,"missing_aspects":[],"influential_sources":[1]}
 
 You are a careful fact-checking evaluator. Use only the provided evidence.
 
@@ -95,6 +95,12 @@ Verdict label discipline:
 - If credible sources contradict the claim's core mechanism or predicate, use REFUTED — not INSUFFICIENT_EVIDENCE.
 - Use CONFLICTING_EVIDENCE only when credible sources make opposing factual assertions about the same predicate — not when one weak source disagrees with several authoritative ones.
 - Do not set needs_more_evidence=true when high-authority sources already resolve the core predicate.
+
+Predicate resolution fields:
+- core_predicate: state the factual mechanism or predicate being judged (e.g., "vaccines overload the immune system"), not the numeric qualifier alone (e.g., "more than two per year").
+- predicate_resolved_by_evidence: set true only when high-authority or established-reference sources already address that core predicate — not when only an exact threshold study is missing.
+- refuting_sources: list 1-based source numbers that contradict core_predicate; required when verdict is REFUTED.
+- If predicate_resolved_by_evidence=true, needs_more_evidence must be false.
 
 Quantitative and threshold claims:
 - When a claim includes a specific number or limit (e.g., "more than two per year"), judge the underlying factual predicate (e.g., "vaccines overload the immune system"), not only whether a study tested that exact number.
@@ -143,6 +149,8 @@ Return only the JSON object.
 """
 
 EVIDENCE_EVALUATOR_REMINDER = """
-Reminder: Judge the core factual predicate. False claims with authoritative contradictory
-evidence → REFUTED. Do not require exact numeric thresholds to appear in sources.
+Reminder: Set core_predicate to the underlying factual claim. If authoritative sources
+already address it, set predicate_resolved_by_evidence=true and list refuting_sources.
+False claims with authoritative contradictory evidence → REFUTED. Do not require exact
+numeric thresholds to appear in sources.
 """

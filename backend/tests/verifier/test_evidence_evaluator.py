@@ -6,6 +6,8 @@ from factcheck.verifier.nodes.evidence_evaluator import (
     EvaluationOutput,
     _evaluation_messages,
     evidence_evaluator_node,
+    is_predicate_resolution_incoherent,
+    validated_refuting_sources,
 )
 from factcheck.verifier.nodes.query_generator import _query_messages
 from factcheck.verifier.schemas import CachedEvaluation, EvidenceItem, VerifierState
@@ -110,10 +112,17 @@ def test_verifier_query_prompt_includes_botanical_source_framing() -> None:
     assert _BERRIES_CLAIM in human_prompt
 
 
+def test_evaluator_prompt_includes_predicate_resolution_fields() -> None:
+    prompt = verifier_prompts.EVIDENCE_EVALUATOR_SYSTEM_PROMPT
+    assert "core_predicate" in prompt
+    assert "predicate_resolved_by_evidence" in prompt
+    assert "refuting_sources" in prompt
+
+
 def test_evaluator_prompt_includes_quantitative_threshold_rules() -> None:
     prompt = verifier_prompts.EVIDENCE_EVALUATOR_SYSTEM_PROMPT.casefold()
     assert "quantitative" in prompt or "threshold" in prompt
-    assert "underlying factual predicate" in prompt
+    assert "core_predicate" in prompt
     assert "vaccines overload your immune system" in prompt
 
 
@@ -131,7 +140,8 @@ def test_evaluator_human_prompt_includes_recency_reminder() -> None:
     human_prompt = _evaluation_messages(state)[-1][1]
 
     assert verifier_prompts.EVIDENCE_EVALUATOR_REMINDER.strip() in human_prompt
-    assert "exact numeric thresholds" in human_prompt.casefold()
+    assert "core_predicate" in human_prompt.casefold()
+    assert "numeric thresholds" in human_prompt.casefold()
 
 
 _VACCINE_CLAIM = (
@@ -158,18 +168,35 @@ def _vaccine_contradiction_evidence() -> list[EvidenceItem]:
     ]
 
 
+def _incoherent_vaccine_evaluation(
+    *,
+    confidence: float = 0.8,
+    reasoning: str = "No study tests the exact threshold of more than two per year.",
+    refuting_sources: list[int] | None = None,
+    missing_aspects: list[str] | None = None,
+) -> EvaluationOutput:
+    return EvaluationOutput(
+        verdict="INSUFFICIENT_EVIDENCE",
+        confidence=confidence,
+        reasoning=reasoning,
+        core_predicate="vaccines overload the immune system",
+        predicate_resolved_by_evidence=True,
+        refuting_sources=refuting_sources or [1, 2],
+        needs_more_evidence=True,
+        missing_aspects=missing_aspects or ["exact threshold study for two vaccines per year"],
+        influential_sources=[],
+    )
+
+
 async def test_evidence_evaluator_guardrail_upgrades_insufficient_to_refuted(
     monkeypatch,
 ) -> None:
+    call_count = 0
+
     async def fake_structured_call(*, llm, output_class, messages, context_desc=""):
-        return EvaluationOutput(
-            verdict="INSUFFICIENT_EVIDENCE",
-            confidence=0.8,
-            reasoning="No study tests the exact threshold of more than two per year.",
-            needs_more_evidence=True,
-            missing_aspects=["exact threshold study for two vaccines per year"],
-            influential_sources=[],
-        )
+        nonlocal call_count
+        call_count += 1
+        return _incoherent_vaccine_evaluation()
 
     monkeypatch.setattr(evidence_evaluator, "get_verifier_llm", lambda **kwargs: object())
     monkeypatch.setattr(evidence_evaluator, "call_llm_with_structured_output", fake_structured_call)
@@ -183,8 +210,9 @@ async def test_evidence_evaluator_guardrail_upgrades_insufficient_to_refuted(
         )
     )
 
+    assert call_count == 2
     assert result["claim_result"]["verdict"] == "REFUTED"
-    assert result["claim_result"]["confidence"] >= 0.75
+    assert result["claim_result"]["confidence"] == 0.8
     assert result["intermediate_assessment"].needs_more_evidence is False
     assert "iteration_count" not in result
 
@@ -195,13 +223,9 @@ async def test_evidence_evaluator_guardrail_stops_threshold_retry_trap(monkeypat
     async def fake_structured_call(*, llm, output_class, messages, context_desc=""):
         nonlocal call_count
         call_count += 1
-        return EvaluationOutput(
-            verdict="INSUFFICIENT_EVIDENCE",
-            confidence=0.8,
+        return _incoherent_vaccine_evaluation(
             reasoning="Evidence contains conflicting information about overload.",
-            needs_more_evidence=True,
             missing_aspects=["exact threshold of more than two vaccines per year"],
-            influential_sources=[],
         )
 
     monkeypatch.setattr(evidence_evaluator, "get_verifier_llm", lambda **kwargs: object())
@@ -545,3 +569,146 @@ async def test_evidence_evaluator_falls_back_to_cached_evaluation(monkeypatch) -
     ]
     assert evidence[0].is_influential is True
     assert evidence[1].is_influential is True
+
+
+def test_validated_refuting_sources_requires_authoritative_tier() -> None:
+    evidence = [
+        EvidenceItem(
+            url="https://www.cdc.gov/example",
+            snippet="Authoritative refutation.",
+            credibility_tier="high",
+        ),
+        EvidenceItem(
+            url="https://reddit.com/example",
+            snippet="Low-tier refutation.",
+            credibility_tier="low",
+        ),
+    ]
+
+    assert validated_refuting_sources(evidence, [1, 2]) == [1]
+
+
+def test_is_predicate_resolution_incoherent_detects_structured_contradiction() -> None:
+    evidence = _vaccine_contradiction_evidence()
+    response = _incoherent_vaccine_evaluation()
+
+    assert is_predicate_resolution_incoherent(response, evidence) is True
+
+
+def test_is_predicate_resolution_incoherent_ignores_coherent_insufficient() -> None:
+    evidence = _vaccine_contradiction_evidence()
+    response = EvaluationOutput(
+        verdict="INSUFFICIENT_EVIDENCE",
+        confidence=0.2,
+        reasoning="No evidence addresses the mechanism.",
+        predicate_resolved_by_evidence=False,
+        needs_more_evidence=True,
+        missing_aspects=["mechanism of immune overload"],
+    )
+
+    assert is_predicate_resolution_incoherent(response, evidence) is False
+
+
+async def test_evidence_evaluator_retries_once_on_incoherent_predicate_resolution(
+    monkeypatch,
+) -> None:
+    call_count = 0
+
+    async def fake_structured_call(*, llm, output_class, messages, context_desc=""):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return _incoherent_vaccine_evaluation()
+        return EvaluationOutput(
+            verdict="REFUTED",
+            confidence=0.9,
+            reasoning="Authoritative sources refute immune overload.",
+            core_predicate="vaccines overload the immune system",
+            predicate_resolved_by_evidence=True,
+            refuting_sources=[1, 2],
+            influential_sources=[1, 2],
+        )
+
+    monkeypatch.setattr(evidence_evaluator, "get_verifier_llm", lambda **kwargs: object())
+    monkeypatch.setattr(evidence_evaluator, "call_llm_with_structured_output", fake_structured_call)
+
+    result = await evidence_evaluator_node(
+        VerifierState(
+            claim_text=_VACCINE_CLAIM,
+            evidence=_vaccine_contradiction_evidence(),
+        )
+    )
+
+    assert call_count == 2
+    assert result["claim_result"]["verdict"] == "REFUTED"
+    assert result["claim_result"]["confidence"] == 0.9
+
+
+async def test_evidence_evaluator_stops_search_when_predicate_resolved(monkeypatch) -> None:
+    async def fake_structured_call(*, llm, output_class, messages, context_desc=""):
+        return EvaluationOutput(
+            verdict="INSUFFICIENT_EVIDENCE",
+            confidence=0.4,
+            reasoning="Threshold-specific evidence is missing.",
+            core_predicate="vaccines overload the immune system",
+            predicate_resolved_by_evidence=True,
+            refuting_sources=[],
+            needs_more_evidence=True,
+            missing_aspects=["exact threshold study"],
+        )
+
+    monkeypatch.setattr(evidence_evaluator, "get_verifier_llm", lambda **kwargs: object())
+    monkeypatch.setattr(evidence_evaluator, "call_llm_with_structured_output", fake_structured_call)
+
+    result = await evidence_evaluator_node(
+        VerifierState(
+            claim_text=_VACCINE_CLAIM,
+            evidence=_vaccine_contradiction_evidence(),
+            iteration_count=1,
+            max_iterations=5,
+        )
+    )
+
+    assert result["intermediate_assessment"].needs_more_evidence is False
+    assert result["intermediate_assessment"].missing_aspects == []
+    assert "iteration_count" not in result
+
+
+async def test_evidence_evaluator_does_not_coerce_without_authoritative_refuting_sources(
+    monkeypatch,
+) -> None:
+    async def fake_structured_call(*, llm, output_class, messages, context_desc=""):
+        return EvaluationOutput(
+            verdict="INSUFFICIENT_EVIDENCE",
+            confidence=0.5,
+            reasoning="Only low-tier sources mention overload.",
+            core_predicate="vaccines overload the immune system",
+            predicate_resolved_by_evidence=True,
+            refuting_sources=[1],
+            needs_more_evidence=True,
+            missing_aspects=["authoritative threshold study"],
+        )
+
+    monkeypatch.setattr(evidence_evaluator, "get_verifier_llm", lambda **kwargs: object())
+    monkeypatch.setattr(evidence_evaluator, "call_llm_with_structured_output", fake_structured_call)
+
+    evidence = [
+        EvidenceItem(
+            url="https://reddit.com/example",
+            snippet="Forum post about vaccines.",
+            credibility_tier="low",
+        )
+    ]
+
+    result = await evidence_evaluator_node(
+        VerifierState(
+            claim_text=_VACCINE_CLAIM,
+            evidence=evidence,
+            iteration_count=4,
+            max_iterations=5,
+        )
+    )
+
+    assert result["claim_result"]["verdict"] == "INSUFFICIENT_EVIDENCE"
+    assert result["claim_result"]["confidence"] == 0.5
+    assert result["intermediate_assessment"].needs_more_evidence is False

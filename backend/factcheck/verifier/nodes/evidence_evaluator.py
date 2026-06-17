@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Literal, Self
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from factcheck.llm.factory import get_verifier_llm
 from factcheck.llm.structured import call_llm_with_structured_output
@@ -15,20 +15,18 @@ from factcheck.verifier.prompts import (
     EVIDENCE_EVALUATOR_REMINDER,
     EVIDENCE_EVALUATOR_SYSTEM_PROMPT,
 )
-from factcheck.verifier.schemas import CachedEvaluation, IntermediateAssessment, VerifierState
+from factcheck.verifier.schemas import CachedEvaluation, EvidenceItem, IntermediateAssessment, VerifierState
 from factcheck.verifier.utils import format_evidence
 from factcheck.verifier.utils.framing import extract_evaluation_frame
-from factcheck.verifier.utils.verdict_signals import (
-    count_authoritative_contradictions,
-    reasoning_suggests_contradiction,
+
+_VERDICT_CORRECTION_PROMPT = (
+    "You set predicate_resolved_by_evidence=true and listed refuting_sources, "
+    "but verdict was INSUFFICIENT_EVIDENCE. If authoritative sources refute the "
+    "core predicate, verdict must be REFUTED. Do not require a study for the exact "
+    "numeric qualifier."
 )
 
-_MIN_CONTRADICTIONS_FOR_REFUTED = 2
-_VERDICT_CORRECTION_PROMPT = (
-    "Your reasoning suggests contradictory evidence, but verdict was INSUFFICIENT_EVIDENCE. "
-    "Re-evaluate: if authoritative sources contradict the claim's core predicate, "
-    "verdict must be REFUTED."
-)
+_AUTHORITATIVE_TIERS = frozenset({"high", "medium"})
 
 
 class EvaluationOutput(BaseModel):
@@ -42,9 +40,82 @@ class EvaluationOutput(BaseModel):
     ]
     confidence: float = Field(ge=0.0, le=1.0)
     reasoning: str
+    core_predicate: str = ""
+    predicate_resolved_by_evidence: bool = False
+    refuting_sources: list[int] = Field(default_factory=list)
     needs_more_evidence: bool = False
     missing_aspects: list[str] = Field(default_factory=list)
     influential_sources: list[int] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _enforce_predicate_resolution_consistency(self) -> Self:
+        if not self.predicate_resolved_by_evidence:
+            return self
+        self.needs_more_evidence = False
+        self.missing_aspects = []
+        return self
+
+
+def validated_refuting_sources(
+    evidence: list[EvidenceItem],
+    refuting_sources: list[int],
+) -> list[int]:
+    """Return 1-based indices that exist and are high/medium tier."""
+    validated: list[int] = []
+    for index in refuting_sources:
+        if not (1 <= index <= len(evidence)):
+            continue
+        if evidence[index - 1].credibility_tier in _AUTHORITATIVE_TIERS:
+            validated.append(index)
+    return validated
+
+
+def is_predicate_resolution_incoherent(
+    response: EvaluationOutput,
+    evidence: list[EvidenceItem],
+) -> bool:
+    """True when the model claims predicate resolution but verdict is insufficient."""
+    return (
+        response.verdict == "INSUFFICIENT_EVIDENCE"
+        and response.predicate_resolved_by_evidence
+        and len(validated_refuting_sources(evidence, response.refuting_sources)) >= 1
+    )
+
+
+def _coerced_refuted_reasoning(refuting_indices: list[int]) -> str:
+    source_list = ", ".join(f"Source {index}" for index in refuting_indices[:3])
+    return (
+        f"Authoritative evidence ({source_list}) contradicts the claim's core predicate. "
+        "General expert consensus refutes the asserted mechanism; an exact numeric "
+        "threshold study is not required."
+    )
+
+
+def _coerce_incoherent_refutation(
+    response: EvaluationOutput,
+    evidence: list[EvidenceItem],
+) -> EvaluationOutput:
+    validated = validated_refuting_sources(evidence, response.refuting_sources)
+    return response.model_copy(
+        update={
+            "verdict": "REFUTED",
+            "needs_more_evidence": False,
+            "missing_aspects": [],
+            "influential_sources": validated[:5] or response.influential_sources,
+            "reasoning": response.reasoning or _coerced_refuted_reasoning(validated),
+        }
+    )
+
+
+def _apply_search_loop_policy(response: EvaluationOutput) -> EvaluationOutput:
+    if not response.predicate_resolved_by_evidence:
+        return response
+    return response.model_copy(
+        update={
+            "needs_more_evidence": False,
+            "missing_aspects": [],
+        }
+    )
 
 
 def _clamp_confidence(confidence: float) -> float:
@@ -82,6 +153,9 @@ def _to_cached(response: EvaluationOutput) -> CachedEvaluation:
         verdict=response.verdict,
         confidence=response.confidence,
         reasoning=response.reasoning,
+        core_predicate=response.core_predicate,
+        predicate_resolved_by_evidence=response.predicate_resolved_by_evidence,
+        refuting_sources=response.refuting_sources,
         needs_more_evidence=response.needs_more_evidence,
         missing_aspects=response.missing_aspects,
         influential_sources=response.influential_sources,
@@ -149,59 +223,6 @@ def _evaluation_messages(
     ]
 
 
-def _guardrail_refuted_reasoning(contradicting_indices: list[int]) -> str:
-    source_list = ", ".join(f"Source {index}" for index in contradicting_indices[:3])
-    return (
-        f"Authoritative evidence ({source_list}) contradicts the claim's core predicate. "
-        "General expert consensus refutes the asserted mechanism; an exact numeric "
-        "threshold study is not required."
-    )
-
-
-def _apply_verdict_guardrails(
-    state: VerifierState,
-    response: EvaluationOutput,
-) -> EvaluationOutput:
-    """Correct clear model mistakes when authoritative evidence already refutes the claim."""
-    if response.verdict not in ("INSUFFICIENT_EVIDENCE", "CONFLICTING_EVIDENCE"):
-        return response
-
-    contradicting_indices = count_authoritative_contradictions(
-        claim_text=state.claim_text,
-        evidence=state.evidence,
-        influential_indices=response.influential_sources,
-    )
-    if len(contradicting_indices) < _MIN_CONTRADICTIONS_FOR_REFUTED:
-        return response
-
-    return response.model_copy(
-        update={
-            "verdict": "REFUTED",
-            "confidence": max(response.confidence, 0.75),
-            "reasoning": _guardrail_refuted_reasoning(contradicting_indices),
-            "needs_more_evidence": False,
-            "missing_aspects": [],
-            "influential_sources": contradicting_indices[:5] or response.influential_sources,
-        }
-    )
-
-
-def _should_request_verdict_correction(
-    state: VerifierState,
-    response: EvaluationOutput,
-) -> bool:
-    if response.verdict != "INSUFFICIENT_EVIDENCE":
-        return False
-    if not reasoning_suggests_contradiction(response.reasoning):
-        return False
-    contradicting_indices = count_authoritative_contradictions(
-        claim_text=state.claim_text,
-        evidence=state.evidence,
-        influential_indices=response.influential_sources,
-    )
-    return len(contradicting_indices) >= 1
-
-
 async def _evaluate_with_llm(
     state: VerifierState,
     *,
@@ -214,6 +235,24 @@ async def _evaluate_with_llm(
         messages=_evaluation_messages(state, extra_human=extra_human),
         context_desc=f"evidence evaluation for '{state.claim_text}'",
     )
+
+
+async def _resolve_predicate_verdict(
+    state: VerifierState,
+    response: EvaluationOutput,
+) -> EvaluationOutput:
+    """Retry once on schema incoherence, then coerce if the model still contradicts itself."""
+    if not is_predicate_resolution_incoherent(response, state.evidence):
+        return response
+
+    corrected = await _evaluate_with_llm(state, extra_human=_VERDICT_CORRECTION_PROMPT)
+    if corrected is not None:
+        response = corrected
+
+    if is_predicate_resolution_incoherent(response, state.evidence):
+        response = _coerce_incoherent_refutation(response, state.evidence)
+
+    return response
 
 
 async def evidence_evaluator_node(
@@ -229,12 +268,8 @@ async def evidence_evaluator_node(
     if response is None:
         return _fallback_result(state)
 
-    if _should_request_verdict_correction(state, response):
-        corrected = await _evaluate_with_llm(state, extra_human=_VERDICT_CORRECTION_PROMPT)
-        if corrected is not None:
-            response = corrected
-
-    response = _apply_verdict_guardrails(state, response)
+    response = await _resolve_predicate_verdict(state, response)
+    response = _apply_search_loop_policy(response)
 
     _mark_influential_sources(state, response.influential_sources)
     intermediate = IntermediateAssessment(

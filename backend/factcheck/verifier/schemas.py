@@ -41,6 +41,9 @@ class CachedEvaluation(BaseModel):
     verdict: Verdict
     confidence: float = Field(ge=0.0, le=1.0)
     reasoning: str
+    core_predicate: str = ""
+    predicate_resolved_by_evidence: bool = False
+    refuting_sources: list[int] = Field(default_factory=list)
     needs_more_evidence: bool = False
     missing_aspects: list[str] = Field(default_factory=list)
     influential_sources: list[int] = Field(default_factory=list)

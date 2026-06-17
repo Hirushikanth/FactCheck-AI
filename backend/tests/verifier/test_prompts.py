@@ -9,6 +9,9 @@ def test_evaluator_prompt_starts_with_json_only_instruction() -> None:
     assert "ONLY one JSON object" in first_line
     assert "CONFLICTING_EVIDENCE" in prompts.EVIDENCE_EVALUATOR_SYSTEM_PROMPT
     assert "needs_more_evidence=true" in prompts.EVIDENCE_EVALUATOR_SYSTEM_PROMPT
+    assert "core_predicate" in prompts.EVIDENCE_EVALUATOR_SYSTEM_PROMPT
+    assert "predicate_resolved_by_evidence" in prompts.EVIDENCE_EVALUATOR_SYSTEM_PROMPT
+    assert "refuting_sources" in prompts.EVIDENCE_EVALUATOR_SYSTEM_PROMPT
 
 
 def test_query_prompts_have_initial_and_iterative_variants() -> None:
