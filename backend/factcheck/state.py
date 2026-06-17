@@ -12,6 +12,7 @@ from factcheck.extractor.schemas import ValidatedClaim
 
 PipelineStatus = Literal["idle", "running", "done", "error"]
 Verdict = Literal["SUPPORTED", "REFUTED", "INSUFFICIENT_EVIDENCE", "CONFLICTING_EVIDENCE"]
+ProcessingStatus = Literal["ok", "error", "degraded"]
 
 
 class ClaimResult(TypedDict):
@@ -26,6 +27,8 @@ class ClaimResult(TypedDict):
     search_queries: list[str]
     source_sentence: NotRequired[str | None]
     fidelity_status: NotRequired[str | None]
+    processing_status: NotRequired[ProcessingStatus]
+    processing_error: NotRequired[str | None]
 
 
 class FactCheckState(TypedDict):

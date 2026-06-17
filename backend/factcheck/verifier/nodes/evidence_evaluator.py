@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field, model_validator
 
 from factcheck.llm.factory import get_verifier_llm
 from factcheck.llm.structured import call_llm_with_structured_output
-from factcheck.state import ClaimResult, Verdict
+from factcheck.state import ClaimResult
 from factcheck.verifier.config import EVAL_NUM_CTX, EVALUATOR_TEMPERATURE
 from factcheck.verifier.prompts import (
     EVIDENCE_EVALUATOR_HUMAN_PROMPT,
@@ -17,6 +17,7 @@ from factcheck.verifier.prompts import (
 )
 from factcheck.verifier.schemas import CachedEvaluation, EvidenceItem, IntermediateAssessment, VerifierState
 from factcheck.verifier.utils import format_evidence
+from factcheck.verifier.utils.claim_result import build_claim_result_from_state
 from factcheck.verifier.utils.framing import extract_evaluation_frame
 
 _VERDICT_CORRECTION_PROMPT = (
@@ -118,34 +119,10 @@ def _apply_search_loop_policy(response: EvaluationOutput) -> EvaluationOutput:
     )
 
 
-def _clamp_confidence(confidence: float) -> float:
-    return max(0.0, min(1.0, confidence))
-
-
 def _mark_influential_sources(state: VerifierState, source_indices: list[int]) -> None:
     influential = {index for index in source_indices if 1 <= index <= len(state.evidence)}
     for index, item in enumerate(state.evidence, start=1):
         item.is_influential = index in influential
-
-
-def _claim_result(
-    state: VerifierState,
-    *,
-    verdict: Verdict,
-    confidence: float,
-    reasoning: str,
-) -> ClaimResult:
-    return {
-        "claim": state.claim_text,
-        "verdict": verdict,
-        "confidence": _clamp_confidence(confidence),
-        "evidence": [item.snippet for item in state.evidence],
-        "sources": [item.url for item in state.evidence],
-        "reasoning": reasoning,
-        "search_queries": state.all_queries,
-        "source_sentence": state.source_sentence,
-        "fidelity_status": state.fidelity_status,
-    }
 
 
 def _to_cached(response: EvaluationOutput) -> CachedEvaluation:
@@ -169,11 +146,13 @@ def _fallback_result(
         cached = state.cached_evaluation
         _mark_influential_sources(state, cached.influential_sources)
         return {
-            "claim_result": _claim_result(
+            "claim_result": build_claim_result_from_state(
                 state,
                 verdict=cached.verdict,
                 confidence=cached.confidence,
                 reasoning=cached.reasoning,
+                processing_status="degraded",
+                processing_error="evaluator_fallback_cached",
             ),
             "intermediate_assessment": IntermediateAssessment(
                 needs_more_evidence=False,
@@ -182,11 +161,13 @@ def _fallback_result(
         }
 
     return {
-        "claim_result": _claim_result(
+        "claim_result": build_claim_result_from_state(
             state,
             verdict="INSUFFICIENT_EVIDENCE",
             confidence=0.0,
             reasoning="The verifier could not produce a structured verdict from the evidence.",
+            processing_status="degraded",
+            processing_error="evaluator_fallback_no_verdict",
         ),
         "intermediate_assessment": IntermediateAssessment(
             needs_more_evidence=False,
@@ -292,7 +273,7 @@ async def evidence_evaluator_node(
         }
 
     return {
-        "claim_result": _claim_result(
+        "claim_result": build_claim_result_from_state(
             state,
             verdict=response.verdict,
             confidence=response.confidence,

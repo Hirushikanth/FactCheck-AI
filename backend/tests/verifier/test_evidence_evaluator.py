@@ -486,6 +486,8 @@ async def test_evidence_evaluator_falls_back_when_structured_output_fails(monkey
 
     assert result["claim_result"]["verdict"] == "INSUFFICIENT_EVIDENCE"
     assert result["claim_result"]["confidence"] == 0.0
+    assert result["claim_result"]["processing_status"] == "degraded"
+    assert result["claim_result"]["processing_error"] == "evaluator_fallback_no_verdict"
     assert result["intermediate_assessment"].needs_more_evidence is False
 
 
@@ -563,6 +565,8 @@ async def test_evidence_evaluator_falls_back_to_cached_evaluation(monkeypatch) -
         result["claim_result"]["reasoning"]
         == "Three sources support partial context but lack the required document."
     )
+    assert result["claim_result"]["processing_status"] == "degraded"
+    assert result["claim_result"]["processing_error"] == "evaluator_fallback_cached"
     assert result["intermediate_assessment"].needs_more_evidence is False
     assert result["intermediate_assessment"].missing_aspects == [
         "official source for the exact figure"

@@ -112,7 +112,8 @@ async def test_pipeline_continues_after_single_claim_verifier_error(monkeypatch)
     assert result["final_report"] is not None
     assert result["claim_results"][0]["claim"] == "The Earth is round."
     assert result["claim_results"][0]["verdict"] == "INSUFFICIENT_EVIDENCE"
-    assert "failed" in result["claim_results"][0]["reasoning"].lower()
+    assert result["claim_results"][0]["processing_status"] == "error"
+    assert "boom" in result["claim_results"][0]["processing_error"]
 
 
 async def test_pipeline_verifies_all_claims_in_parallel(monkeypatch) -> None:

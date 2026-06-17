@@ -1,6 +1,6 @@
 from typing import get_args
 
-from factcheck.state import ClaimResult, FactCheckState, PipelineStatus, Verdict
+from factcheck.state import ClaimResult, FactCheckState, PipelineStatus, ProcessingStatus, Verdict
 from factcheck.verifier import config as verifier_config
 from factcheck.verifier.schemas import CachedEvaluation, EvidenceItem, IntermediateAssessment, VerifierState
 
@@ -18,6 +18,10 @@ def test_verdict_values_are_frozen() -> None:
     }
 
 
+def test_processing_status_values_are_frozen() -> None:
+    assert set(get_args(ProcessingStatus)) == {"ok", "error", "degraded"}
+
+
 def test_claim_result_fields_match_architecture_contract() -> None:
     assert set(ClaimResult.__annotations__) == {
         "claim",
@@ -29,6 +33,8 @@ def test_claim_result_fields_match_architecture_contract() -> None:
         "search_queries",
         "source_sentence",
         "fidelity_status",
+        "processing_status",
+        "processing_error",
     }
 
 

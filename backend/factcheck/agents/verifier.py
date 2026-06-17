@@ -9,6 +9,7 @@ from factcheck.extractor.schemas import ValidatedClaim
 from factcheck.graph.event_bus import push_event
 from factcheck.state import ClaimResult, FactCheckState
 from factcheck.verifier import run_verifier
+from factcheck.verifier.utils.claim_result import build_claim_result, is_processing_error
 
 
 logger = logging.getLogger(__name__)
@@ -27,17 +28,16 @@ def _fidelity_status(claim: ValidatedClaim | str) -> str | None:
 
 
 def _make_error_result(claim: ValidatedClaim | str, exc: Exception) -> ClaimResult:
-    return {
-        "claim": _claim_text(claim),
-        "verdict": "INSUFFICIENT_EVIDENCE",
-        "confidence": 0.0,
-        "evidence": [],
-        "sources": [],
-        "reasoning": f"Verifier failed while processing this claim: {exc}",
-        "search_queries": [],
-        "source_sentence": _source_sentence(claim),
-        "fidelity_status": _fidelity_status(claim),
-    }
+    return build_claim_result(
+        claim=_claim_text(claim),
+        verdict="INSUFFICIENT_EVIDENCE",
+        confidence=0.0,
+        reasoning="Verification could not be completed due to a system error.",
+        source_sentence=_source_sentence(claim),
+        fidelity_status=_fidelity_status(claim),
+        processing_status="error",
+        processing_error=str(exc),
+    )
 
 
 async def _verify_single_claim(claim: ValidatedClaim | str) -> ClaimResult:
@@ -100,12 +100,7 @@ async def verifier_node(
 
     claim_results: list[ClaimResult] = list(results)
 
-    error_count = sum(
-        1
-        for result in claim_results
-        if result["verdict"] == "INSUFFICIENT_EVIDENCE"
-        and "failed" in result.get("reasoning", "").lower()
-    )
+    error_count = sum(1 for result in claim_results if is_processing_error(result))
     if error_count > 0:
         logger.warning(
             "[verifier] %d/%d claims had verification errors.",

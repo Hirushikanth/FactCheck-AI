@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 import pytest
 
 from factcheck.agents import verifier as verifier_agent
@@ -62,3 +64,52 @@ async def test_verifier_node_emits_verdict_ready_for_each_claim(monkeypatch) -> 
     assert [event["data"]["index"] for event in verdict_events] == [0, 1]
     assert all(event["data"]["total"] == 2 for event in verdict_events)
     assert len(result["claim_results"]) == 2
+
+
+@pytest.mark.asyncio
+async def test_verifier_node_counts_processing_errors_not_reasoning_text(
+    monkeypatch,
+    caplog,
+) -> None:
+    claims = [
+        _validated_claim("Claim that raises.", original_index=0),
+        _validated_claim("Claim with failed wording.", original_index=1),
+    ]
+
+    async def fake_run_verifier(claim: ValidatedClaim):
+        if claim.claim_text == "Claim that raises.":
+            raise RuntimeError("boom")
+        return {
+            "claim": claim.claim_text,
+            "verdict": "INSUFFICIENT_EVIDENCE",
+            "confidence": 0.4,
+            "evidence": ["Search failed to find peer-reviewed sources."],
+            "sources": ["https://example.com"],
+            "reasoning": "Searches failed to return authoritative sources.",
+            "search_queries": ["query"],
+        }
+
+    async def noop_push(*_args, **_kwargs) -> None:
+        return None
+
+    monkeypatch.setattr(verifier_agent, "run_verifier", fake_run_verifier)
+    monkeypatch.setattr(verifier_agent, "push_event", noop_push)
+
+    with caplog.at_level(logging.WARNING):
+        result = await verifier_agent.verifier_node(
+            {
+                "raw_input": "Compound input.",
+                "extracted_claims": claims,
+                "claim_results": [],
+                "final_report": None,
+                "messages": [],
+                "current_agent": "",
+                "session_id": "sess-verifier",
+                "error": None,
+                "status": "idle",
+            }
+        )
+
+    assert result["claim_results"][0]["processing_status"] == "error"
+    assert "processing_status" not in result["claim_results"][1]
+    assert any("1/2 claims had verification errors" in record.message for record in caplog.records)
