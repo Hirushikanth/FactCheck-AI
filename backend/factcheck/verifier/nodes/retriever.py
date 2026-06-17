@@ -7,8 +7,12 @@ import logging
 import re
 from urllib.parse import urlsplit, urlunsplit
 
-import httpx
-
+from factcheck.config import AppSettings, get_settings
+from factcheck.http.pinned_fetch import (
+    DEFAULT_FETCH_TIMEOUT_SECONDS,
+    fetch_html_pinned,
+)
+from factcheck.http.url_policy import UrlPolicyError, is_safe_citation_url
 from factcheck.search import SearchHit, search_with_fallback
 from factcheck.verifier.config import FULL_PAGE_FETCH_TOP_N, MAX_SNIPPET_WORDS, RANKER_HEURISTIC_TOP_N
 from factcheck.verifier.schemas import EvidenceItem, VerifierState
@@ -23,7 +27,6 @@ from factcheck.verifier.utils.framing import extract_evaluation_frame
 
 logger = logging.getLogger(__name__)
 
-_FETCH_TIMEOUT_SECONDS = 8.0
 _MAX_FETCHED_CHARS = 3000
 _SKIP_FETCH_DOMAINS = frozenset({
     "twitter.com",
@@ -71,49 +74,31 @@ def _extract_text_from_html(html: str) -> str:
     return re.sub(r"\s+", " ", html).strip()
 
 
-async def _fetch_page_text(url: str) -> str | None:
-    """Attempt to fetch and extract text from a URL."""
-    domain = _domain_from_url(url)
+async def _resolve_page_text(hit: SearchHit, settings: AppSettings) -> str | None:
+    """Resolve full-page text from provider content or a pinned self-fetch."""
+
+    if hit.page_text:
+        return hit.page_text[:_MAX_FETCHED_CHARS]
+
+    if settings.full_page_fetch_mode == "off":
+        return None
+
+    domain = _domain_from_url(hit.url)
     if domain in _SKIP_FETCH_DOMAINS:
         logger.debug("[retriever] Skipping fetch for blocked domain: %s", domain)
         return None
 
     try:
-        async with httpx.AsyncClient(
-            timeout=_FETCH_TIMEOUT_SECONDS,
-            follow_redirects=True,
-            headers={
-                "User-Agent": (
-                    "Mozilla/5.0 (compatible; FactCheckBot/1.0; "
-                    "+https://academic-factchecker.example)"
-                )
-            },
-        ) as client:
-            response = await client.get(url)
-
-            if response.status_code != 200:
-                logger.debug(
-                    "[retriever] Non-200 response (%s) from %s",
-                    response.status_code,
-                    url,
-                )
-                return None
-
-            content_type = response.headers.get("content-type", "")
-            if "text/html" not in content_type:
-                logger.debug(
-                    "[retriever] Non-HTML content-type at %s: %s",
-                    url,
-                    content_type,
-                )
-                return None
-
-            text = _extract_text_from_html(response.text)
-            return text[:_MAX_FETCHED_CHARS] if text else None
-
-    except Exception as exc:
-        logger.debug("[retriever] Failed to fetch %s: %s", url, exc)
+        html = await fetch_html_pinned(hit.url, timeout=DEFAULT_FETCH_TIMEOUT_SECONDS)
+    except UrlPolicyError as exc:
+        logger.debug("[retriever] Blocked unsafe fetch URL %s: %s", hit.url, exc)
         return None
+    except Exception as exc:
+        logger.debug("[retriever] Failed to fetch %s: %s", hit.url, exc)
+        return None
+
+    text = _extract_text_from_html(html)
+    return text[:_MAX_FETCHED_CHARS] if text else None
 
 
 def _active_queries(state: VerifierState) -> list[str]:
@@ -166,6 +151,9 @@ async def retriever_node(
         normalized = _normalized_url(hit.url)
         if not normalized or normalized in seen_urls:
             continue
+        if not is_safe_citation_url(hit.url):
+            logger.debug("[retriever] Dropping unsafe citation URL: %s", hit.url)
+            continue
         seen_urls.add(normalized)
         deduped_hits.append(hit)
 
@@ -179,8 +167,9 @@ async def retriever_node(
         evaluation_frame=extract_evaluation_frame(state.claim_text),
     )
 
+    settings = get_settings()
     top_hits_for_fetch = ranked_hits[:FULL_PAGE_FETCH_TOP_N]
-    fetch_tasks = [_fetch_page_text(hit.url) for hit, _ in top_hits_for_fetch]
+    fetch_tasks = [_resolve_page_text(hit, settings) for hit, _ in top_hits_for_fetch]
     fetched_texts = await asyncio.gather(*fetch_tasks, return_exceptions=True)
 
     fetched_by_url: dict[str, str] = {}

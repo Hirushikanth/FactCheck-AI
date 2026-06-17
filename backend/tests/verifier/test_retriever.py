@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from factcheck.config import AppSettings, get_settings
 from factcheck.search import SearchHit
 from factcheck.verifier.nodes import retriever
 from factcheck.verifier.nodes.retriever import _truncate_snippet, retriever_node
@@ -181,11 +182,11 @@ async def test_retriever_searches_all_current_queries_in_parallel(monkeypatch) -
             "duckduckgo",
         )
 
-    async def fake_fetch_page_text(url: str) -> str | None:
+    async def fake_fetch_html_pinned(url: str, **kwargs) -> str:
         return None
 
     monkeypatch.setattr(retriever, "search_with_fallback", fake_search_with_fallback)
-    monkeypatch.setattr(retriever, "_fetch_page_text", fake_fetch_page_text)
+    monkeypatch.setattr(retriever, "fetch_html_pinned", fake_fetch_html_pinned)
 
     result = await retriever_node(
         VerifierState(
@@ -214,11 +215,11 @@ async def test_retriever_uses_fetched_page_text_for_top_hits(monkeypatch) -> Non
             "duckduckgo",
         )
 
-    async def fake_fetch_page_text(url: str) -> str | None:
+    async def fake_fetch_html_pinned(url: str, **kwargs) -> str:
         return "Earth is an oblate spheroid with measurable flattening."
 
     monkeypatch.setattr(retriever, "search_with_fallback", fake_search_with_fallback)
-    monkeypatch.setattr(retriever, "_fetch_page_text", fake_fetch_page_text)
+    monkeypatch.setattr(retriever, "fetch_html_pinned", fake_fetch_html_pinned)
 
     result = await retriever_node(
         VerifierState(
@@ -246,11 +247,11 @@ async def test_retriever_falls_back_to_snippet_when_fetch_fails(monkeypatch) -> 
             "duckduckgo",
         )
 
-    async def fake_fetch_page_text(url: str) -> str | None:
+    async def fake_fetch_html_pinned(url: str, **kwargs) -> str:
         return None
 
     monkeypatch.setattr(retriever, "search_with_fallback", fake_search_with_fallback)
-    monkeypatch.setattr(retriever, "_fetch_page_text", fake_fetch_page_text)
+    monkeypatch.setattr(retriever, "fetch_html_pinned", fake_fetch_html_pinned)
 
     result = await retriever_node(
         VerifierState(
@@ -263,8 +264,18 @@ async def test_retriever_falls_back_to_snippet_when_fetch_fails(monkeypatch) -> 
     assert result["evidence"][0].content_source == "snippet"
 
 
-async def test_fetch_page_text_skips_blocked_domains() -> None:
-    assert await retriever._fetch_page_text("https://twitter.com/post/123") is None
+async def test_resolve_page_text_skips_blocked_domains() -> None:
+    settings = AppSettings(full_page_fetch_mode="provider")
+    assert (
+        await retriever._resolve_page_text(
+            SearchHit(
+                url="https://twitter.com/post/123",
+                snippet="Earth is round.",
+            ),
+            settings,
+        )
+        is None
+    )
 
 
 async def test_retriever_uses_snippet_for_blocked_domains(monkeypatch) -> None:
@@ -309,12 +320,12 @@ async def test_retriever_fetches_top_five_ranked_hits(monkeypatch) -> None:
             "duckduckgo",
         )
 
-    async def fake_fetch_page_text(url: str) -> str | None:
+    async def fake_fetch_html_pinned(url: str, **kwargs) -> str:
         fetch_calls.append(url)
         return f"Full page text for {url}."
 
     monkeypatch.setattr(retriever, "search_with_fallback", fake_search_with_fallback)
-    monkeypatch.setattr(retriever, "_fetch_page_text", fake_fetch_page_text)
+    monkeypatch.setattr(retriever, "fetch_html_pinned", fake_fetch_html_pinned)
 
     result = await retriever_node(
         VerifierState(
@@ -327,3 +338,107 @@ async def test_retriever_fetches_top_five_ranked_hits(monkeypatch) -> None:
     assert sum(item.content_source == "fetched" for item in result["evidence"]) == 5
     if len(result["evidence"]) > 5:
         assert result["evidence"][5].content_source == "snippet"
+
+
+async def test_retriever_drops_unsafe_citation_urls(monkeypatch) -> None:
+    async def fake_search_with_fallback(query: str):
+        return (
+            [
+                SearchHit(
+                    url="https://127.0.0.1/internal",
+                    title="Internal",
+                    snippet="Should be dropped.",
+                ),
+                SearchHit(
+                    url="https://science.example/earth",
+                    title="Earth shape",
+                    snippet="Earth is an oblate spheroid.",
+                ),
+            ],
+            "duckduckgo",
+        )
+
+    monkeypatch.setattr(retriever, "search_with_fallback", fake_search_with_fallback)
+
+    result = await retriever_node(
+        VerifierState(
+            claim_text="The Earth is an oblate spheroid.",
+            current_query="earth oblate spheroid",
+        )
+    )
+
+    assert [item.url for item in result["evidence"]] == ["https://science.example/earth"]
+
+
+async def test_retriever_uses_provider_page_text_without_self_fetch(monkeypatch) -> None:
+    fetch_calls: list[str] = []
+
+    async def fake_search_with_fallback(query: str):
+        return (
+            [
+                SearchHit(
+                    url="https://science.example/earth",
+                    title="Earth shape",
+                    snippet="Short snippet only.",
+                    page_text="Earth is an oblate spheroid with measurable flattening.",
+                )
+            ],
+            "tavily",
+        )
+
+    async def fake_fetch_html_pinned(url: str, **kwargs) -> str:
+        fetch_calls.append(url)
+        raise AssertionError("pinned fetch should not run when provider page_text exists")
+
+    monkeypatch.setattr(retriever, "search_with_fallback", fake_search_with_fallback)
+    monkeypatch.setattr(retriever, "fetch_html_pinned", fake_fetch_html_pinned)
+
+    result = await retriever_node(
+        VerifierState(
+            claim_text="The Earth is an oblate spheroid.",
+            current_query="earth oblate spheroid",
+        )
+    )
+
+    assert fetch_calls == []
+    assert result["evidence"][0].content_source == "fetched"
+    assert "measurable flattening" in result["evidence"][0].snippet
+
+
+async def test_retriever_off_mode_skips_pinned_fetch(monkeypatch) -> None:
+    fetch_calls: list[str] = []
+
+    async def fake_search_with_fallback(query: str):
+        return (
+            [
+                SearchHit(
+                    url="https://science.example/earth",
+                    title="Earth shape",
+                    snippet="Earth is an oblate spheroid.",
+                )
+            ],
+            "duckduckgo",
+        )
+
+    async def fake_fetch_html_pinned(url: str, **kwargs) -> str:
+        fetch_calls.append(url)
+        raise AssertionError("pinned fetch should not run in off mode")
+
+    monkeypatch.setattr(retriever, "search_with_fallback", fake_search_with_fallback)
+    monkeypatch.setattr(retriever, "fetch_html_pinned", fake_fetch_html_pinned)
+    monkeypatch.setattr(
+        retriever,
+        "get_settings",
+        lambda: AppSettings(full_page_fetch_mode="off"),
+    )
+    get_settings.cache_clear()
+
+    result = await retriever_node(
+        VerifierState(
+            claim_text="The Earth is an oblate spheroid.",
+            current_query="earth oblate spheroid",
+        )
+    )
+
+    assert fetch_calls == []
+    assert result["evidence"][0].content_source == "snippet"

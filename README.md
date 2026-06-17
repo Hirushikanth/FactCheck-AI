@@ -78,11 +78,16 @@ Copy `backend/.env.example` to `backend/.env` and adjust as needed. All variable
 | `DDG_MIN_REQUEST_INTERVAL` | `1.5` | DDG minimum spacing between requests |
 | `TAVILY_API_KEY` | (empty) | Optional Tavily search API key |
 | `SERPER_API_KEY` | (empty) | Optional Serper search API key |
+| `FULL_PAGE_FETCH_MODE` | `provider` | Evidence page fetch: `off`, `provider`, or `pinned` |
 | `DEV_CORS_ORIGINS` | `http://localhost:5173,...` | CORS allowed origins |
 | `SQLITE_PATH` | `factcheck_ai.db` | SQLite database path |
 | `DEBUG` | `false` | Debug flag |
 
 DuckDuckGo is used first and does not require credentials. Tavily and Serper are only attempted when keys are configured.
+
+### Evidence fetch security
+
+When the verifier needs full-page evidence text, the backend prefers Tavily-supplied page content when available. Otherwise it uses a pinned HTTP fetch that validates each URL, resolves DNS to a public IP, connects to that IP directly, and re-validates every redirect hop. Private, loopback, link-local, and metadata targets are blocked. Before LAN or public deployment, also restrict outbound network access at the infrastructure layer (for example, deny RFC1918 and `169.254.0.0/16` egress from the backend host).
 
 ## Backend Quick Start
 

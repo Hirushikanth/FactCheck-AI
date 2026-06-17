@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -32,6 +33,7 @@ class AppSettings(BaseSettings):
     ddg_min_request_interval: float = Field(default=1.5, ge=0.0)
     tavily_api_key: str | None = None
     serper_api_key: str | None = None
+    full_page_fetch_mode: Literal["off", "provider", "pinned"] = "provider"
     dev_cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173,http://localhost:8080"
     sqlite_path: str = "factcheck_ai.db"
     debug: bool = False

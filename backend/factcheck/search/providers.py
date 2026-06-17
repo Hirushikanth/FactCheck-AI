@@ -184,21 +184,26 @@ class TavilyProvider:
                     "max_results": max_results,
                     "search_depth": "basic",
                     "include_answer": False,
-                    "include_raw_content": False,
+                    "include_raw_content": True,
                 },
             )
             response.raise_for_status()
             payload = response.json()
 
-        return [
-            SearchHit(
-                url=str(result.get("url", "")),
-                title=str(result.get("title", "")),
-                snippet=str(result.get("content", "")),
+        hits: list[SearchHit] = []
+        for result in payload.get("results", []):
+            if not isinstance(result, dict) or not result.get("url"):
+                continue
+            raw_content = str(result.get("raw_content", "")).strip()
+            hits.append(
+                SearchHit(
+                    url=str(result.get("url", "")),
+                    title=str(result.get("title", "")),
+                    snippet=str(result.get("content", "")),
+                    page_text=raw_content or None,
+                )
             )
-            for result in payload.get("results", [])
-            if isinstance(result, dict) and result.get("url")
-        ]
+        return hits
 
 
 class SerperProvider:

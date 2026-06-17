@@ -11,6 +11,7 @@ from factcheck.config import AppSettings, get_settings
 from factcheck.search import SearchHit, build_provider_chain, search_with_fallback
 from factcheck.search.providers import (
     DuckDuckGoProvider,
+    TavilyProvider,
     _jittered_backoff,
     _is_likely_throttle,
     reset_ddg_spacing_for_tests,
@@ -353,3 +354,54 @@ async def test_ddg_enforces_min_request_interval(monkeypatch) -> None:
     assert len(hits) == 1
     assert len(sleeps) == 1
     assert sleeps[0] >= 1.9
+
+
+async def test_tavily_provider_maps_raw_content_to_page_text(monkeypatch) -> None:
+    class FakeResponse:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict:
+            return {
+                "results": [
+                    {
+                        "url": "https://example.com/article",
+                        "title": "Article",
+                        "content": "Snippet text.",
+                        "raw_content": "Full page article text.",
+                    }
+                ]
+            }
+
+    class FakeAsyncClient:
+        def __init__(self, *args, **kwargs):
+            self.last_json: dict | None = None
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, traceback):
+            return False
+
+        async def post(self, url: str, json: dict):
+            self.last_json = json
+            return FakeResponse()
+
+    fake_client = FakeAsyncClient()
+    monkeypatch.setattr(
+        "factcheck.search.providers.httpx.AsyncClient",
+        lambda *args, **kwargs: fake_client,
+    )
+
+    hits = await TavilyProvider("tvly-test").search("earth shape", max_results=1)
+
+    assert fake_client.last_json is not None
+    assert fake_client.last_json["include_raw_content"] is True
+    assert hits == [
+        SearchHit(
+            url="https://example.com/article",
+            title="Article",
+            snippet="Snippet text.",
+            page_text="Full page article text.",
+        )
+    ]

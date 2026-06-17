@@ -12,3 +12,4 @@ class SearchHit:
     url: str
     title: str = ""
     snippet: str = ""
+    page_text: str | None = None
