@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import patch
 
 import pytest
@@ -195,3 +196,153 @@ async def test_trigger_new_factcheck_calls_try_acquire(temp_db, monkeypatch) -> 
     with patch.object(dialogue_service, "try_acquire_session", return_value=True) as store_acquire:
         await dialogue_service._trigger_new_factcheck("sess-acquire", "New claim.")
         store_acquire.assert_called_once_with("sess-acquire")
+
+
+@pytest.mark.asyncio
+async def test_trigger_new_factcheck_skips_acquire_when_lock_held(
+    temp_db, monkeypatch
+) -> None:
+    run1_id = session_store.create_session("sess-lock-held", "Original.", db_path=temp_db)
+    session_store.complete_factcheck_run(
+        run1_id,
+        claim_results=[{"claim": "Original.", "verdict": "SUPPORTED"}],
+        final_report="Original report.",
+        db_path=temp_db,
+    )
+    session_store.set_active_run("sess-lock-held", run1_id, db_path=temp_db)
+    session_store.update_session_status("sess-lock-held", "running", db_path=temp_db)
+
+    async def fake_run_factcheck_with_events(**kwargs):
+        return {
+            "claim_results": [{"claim": "New claim.", "verdict": "SUPPORTED"}],
+            "final_report": "New report.",
+        }
+
+    monkeypatch.setattr(
+        dialogue_service,
+        "run_factcheck_with_events",
+        fake_run_factcheck_with_events,
+    )
+    monkeypatch.setattr(dialogue_service, "create_session_hub", lambda session_id, run_id=None: None)
+
+    with patch.object(dialogue_service, "try_acquire_session") as store_acquire:
+        await dialogue_service._trigger_new_factcheck(
+            "sess-lock-held", "New claim.", lock_held=True
+        )
+        store_acquire.assert_not_called()
+
+    session = session_store.get_session("sess-lock-held", db_path=temp_db)
+    assert session is not None
+    assert session["status"] == "done"
+    runs = session_store.get_factcheck_runs("sess-lock-held", db_path=temp_db)
+    assert len(runs) == 2
+    assert runs[1]["raw_input"] == "New claim."
+
+
+@pytest.mark.asyncio
+async def test_run_dialogue_turn_triggers_factcheck_with_lock_held(
+    temp_db, monkeypatch
+) -> None:
+    run1_id = session_store.create_session("sess-sync-fc", "Original.", db_path=temp_db)
+    session_store.complete_factcheck_run(
+        run1_id,
+        claim_results=[{"claim": "Original.", "verdict": "SUPPORTED"}],
+        final_report="Original report.",
+        db_path=temp_db,
+    )
+    session_store.set_active_run("sess-sync-fc", run1_id, db_path=temp_db)
+    session_store.update_session_status("sess-sync-fc", "done", db_path=temp_db)
+
+    async def fake_run_dialogue(**kwargs):
+        return {
+            "response": "Queued.",
+            "intent": "new_claim",
+            "dialogue_history": [],
+            "conversation_summary": None,
+            "compressed_fc_context": None,
+            "needs_new_factcheck": True,
+            "new_claim_text": "The moon is cheese.",
+            "error": None,
+        }
+
+    async def fake_run_factcheck_with_events(**kwargs):
+        return {
+            "claim_results": [{"claim": "The moon is cheese.", "verdict": "REFUTED"}],
+            "final_report": "Moon report.",
+        }
+
+    monkeypatch.setattr(dialogue_service, "run_dialogue", fake_run_dialogue)
+    monkeypatch.setattr(
+        dialogue_service,
+        "run_factcheck_with_events",
+        fake_run_factcheck_with_events,
+    )
+    monkeypatch.setattr(dialogue_service, "create_session_hub", lambda session_id, run_id=None: None)
+    monkeypatch.setattr(dialogue_service, "persist_dialogue_state", lambda *args, **kwargs: None)
+
+    await dialogue_service.run_dialogue_turn("sess-sync-fc", "Check: The moon is cheese.")
+    await asyncio.sleep(0)
+
+    session = session_store.get_session("sess-sync-fc", db_path=temp_db)
+    assert session is not None
+    assert session["status"] == "done"
+    runs = session_store.get_factcheck_runs("sess-sync-fc", db_path=temp_db)
+    assert len(runs) == 2
+    assert runs[1]["raw_input"] == "The moon is cheese."
+
+
+@pytest.mark.asyncio
+async def test_run_dialogue_turn_background_triggers_factcheck_when_running(
+    temp_db, monkeypatch
+) -> None:
+    run1_id = session_store.create_session("sess-bg-fc", "Original.", db_path=temp_db)
+    session_store.complete_factcheck_run(
+        run1_id,
+        claim_results=[{"claim": "Original.", "verdict": "SUPPORTED"}],
+        final_report="Original report.",
+        db_path=temp_db,
+    )
+    session_store.set_active_run("sess-bg-fc", run1_id, db_path=temp_db)
+    session_store.update_session_status("sess-bg-fc", "running", db_path=temp_db)
+
+    async def fake_run_dialogue_with_events(**kwargs):
+        return {
+            "response": "Queued.",
+            "intent": "new_claim",
+            "dialogue_history": [],
+            "conversation_summary": None,
+            "compressed_fc_context": None,
+            "needs_new_factcheck": True,
+            "new_claim_text": "New claim.",
+            "error": None,
+        }
+
+    async def fake_run_factcheck_with_events(**kwargs):
+        return {
+            "claim_results": [{"claim": "New claim.", "verdict": "SUPPORTED"}],
+            "final_report": "New report.",
+        }
+
+    monkeypatch.setattr(
+        dialogue_service,
+        "run_dialogue_with_events",
+        fake_run_dialogue_with_events,
+    )
+    monkeypatch.setattr(
+        dialogue_service,
+        "run_factcheck_with_events",
+        fake_run_factcheck_with_events,
+    )
+    monkeypatch.setattr(dialogue_service, "create_session_hub", lambda session_id, run_id=None: None)
+    monkeypatch.setattr(dialogue_service, "persist_dialogue_state", lambda *args, **kwargs: None)
+
+    with patch.object(dialogue_service, "try_acquire_session") as store_acquire:
+        await dialogue_service.run_dialogue_turn_background("sess-bg-fc", "New claim.")
+        store_acquire.assert_not_called()
+
+    session = session_store.get_session("sess-bg-fc", db_path=temp_db)
+    assert session is not None
+    assert session["status"] == "done"
+    runs = session_store.get_factcheck_runs("sess-bg-fc", db_path=temp_db)
+    assert len(runs) == 2
+    assert runs[1]["raw_input"] == "New claim."

@@ -54,8 +54,9 @@ async def run_dialogue_turn(session_id: str, message: str) -> DialogueOutput:
     persist_dialogue_state(session_id, result, prior_history_len=prior_history_len)
 
     if result.get("needs_new_factcheck") and result.get("new_claim_text"):
+        create_session_hub(session_id)
         asyncio.create_task(
-            _trigger_new_factcheck(session_id, result["new_claim_text"])
+            _run_new_factcheck_background(session_id, result["new_claim_text"])
         )
 
     return result
@@ -81,7 +82,9 @@ async def run_dialogue_turn_background(session_id: str, message: str) -> None:
         )
 
         if result.get("needs_new_factcheck") and result.get("new_claim_text"):
-            await _trigger_new_factcheck(session_id, result["new_claim_text"])
+            await _trigger_new_factcheck(
+                session_id, result["new_claim_text"], lock_held=True
+            )
         else:
             await asyncio.to_thread(update_session_status, session_id, "done")
     except Exception as exc:
@@ -98,15 +101,38 @@ async def run_dialogue_turn_background(session_id: str, message: str) -> None:
         )
 
 
-async def _trigger_new_factcheck(session_id: str, claim_text: str) -> None:
-    """Run a new fact-check for a claim submitted during dialogue."""
-    acquired = await asyncio.to_thread(try_acquire_session, session_id)
-    if not acquired:
-        logger.warning(
-            "[dialogue_service] Re-factcheck skipped for session %s: session busy",
+async def _run_new_factcheck_background(session_id: str, claim_text: str) -> None:
+    """Run a new fact-check in the background after a sync dialogue turn."""
+    try:
+        await _trigger_new_factcheck(session_id, claim_text, lock_held=True)
+    except Exception:
+        logger.exception(
+            "[dialogue_service] Unhandled error in background fact-check for %s",
             session_id,
         )
-        return
+        await asyncio.to_thread(
+            update_session_status,
+            session_id,
+            "error",
+            error="Fact-check failed",
+        )
+
+
+async def _trigger_new_factcheck(
+    session_id: str,
+    claim_text: str,
+    *,
+    lock_held: bool = False,
+) -> None:
+    """Run a new fact-check for a claim submitted during dialogue."""
+    if not lock_held:
+        acquired = await asyncio.to_thread(try_acquire_session, session_id)
+        if not acquired:
+            logger.warning(
+                "[dialogue_service] Re-factcheck skipped for session %s: session busy",
+                session_id,
+            )
+            return
 
     run_id = await asyncio.to_thread(
         create_factcheck_run,

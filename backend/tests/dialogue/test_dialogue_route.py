@@ -141,7 +141,9 @@ def test_dialogue_route_triggers_pipeline_for_new_claim(client, temp_db, monkeyp
 
     trigger = AsyncMock()
     monkeypatch.setattr("factcheck.dialogue.service.run_dialogue", fake_run_dialogue_turn)
-    monkeypatch.setattr("factcheck.dialogue.service._trigger_new_factcheck", trigger)
+    monkeypatch.setattr(
+        "factcheck.dialogue.service._run_new_factcheck_background", trigger
+    )
 
     response = client.post(
         "/api/dialogue/sess-new-claim",
@@ -151,3 +153,4 @@ def test_dialogue_route_triggers_pipeline_for_new_claim(client, temp_db, monkeyp
     assert response.status_code == 200
     assert response.json()["intent"] == "new_claim"
     assert response.json()["needs_new_factcheck"] is True
+    trigger.assert_called_once_with("sess-new-claim", "The moon is cheese.")
