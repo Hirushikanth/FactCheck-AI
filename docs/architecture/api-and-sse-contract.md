@@ -67,10 +67,11 @@ This document records the implemented REST and Server-Sent Events contract for t
 
 ## SSE Event Types
 
-Events are pushed to the session queue and consumed via `GET /api/sessions/{id}/stream`.
+Events are pushed to the per-session event hub and consumed via `GET /api/sessions/{id}/stream`. The hub buffers events (ring buffer, max 256) and replays them to new subscribers while a run is active or for up to 120 seconds after close.
 
 | Event | Payload | Emitted by | Description |
 |---|---|---|---|
+| `stream_open` | `{ "session_id": "string", "run_id": "string \| null", "replay_count": 0, "hub_state": "open \| closed", "server_time": "ISO8601" }` | Event hub | First frame on every successful stream connection; confirms the stream is live. |
 | `agent_start` | `{ "agent": "string", "timestamp": "ISO8601" }` | Pipeline runner, dialogue runner | An agent begins work (`extractor`, `verifier`, `reporter`, or `dialogue`). |
 | `claim_found` | `{ "claim": "string", "index": 0, "total": 1 }` | Pipeline runner | Extractor identifies a claim. |
 | `extractor_stage_failed` | `{ "stage": "string", "sentence": "string", "reason": "string", "successes": 0, "attempts": 0, "timestamp": "ISO8601" }` | Extractor agent | A sentence was dropped during selection, disambiguation, or decomposition. |
@@ -81,6 +82,27 @@ Events are pushed to the session queue and consumed via `GET /api/sessions/{id}/
 | `dialogue_reply` | `{ "message": "string" }` | Dialogue runner | Dialogue agent returns a follow-up answer. |
 
 `search_query` events are not currently emitted at the runner level. Search activity is recorded in each claim result's `search_queries` field.
+
+### Stream Endpoint Errors
+
+| Status | When | Response |
+|---|---|---|
+| `404` | Unknown `session_id` | `{ "detail": "Session not found" }` |
+| `409` | No subscribable hub (missed window or pipeline orphaned) | `{ "detail": { "code": "stream_missed" \| "pipeline_orphaned", "session_status": "string", "active_run_id": "string \| null", "hint": "string" } }` |
+| `200` | Active or replayable hub | SSE stream (first event is always `stream_open`) |
+
+**409 codes:**
+
+- `stream_missed` — session is `done` or `error` and no hub is available (client connected too late; use `GET /api/sessions/{id}` for final state).
+- `pipeline_orphaned` — session is `running` but no hub appeared within 5 seconds (unexpected; retry or fetch session state).
+
+### Client Reconnect Rules
+
+1. Open `GET /api/sessions/{id}/stream` immediately after every `202` (`POST /api/sessions`, `POST /api/sessions/{id}/messages`).
+2. Treat HTTP `200` alone as insufficient — wait for the `stream_open` event before assuming the stream is valid.
+3. On `409` with `code: "stream_missed"` and `session_status: "done"`, use `GET /api/sessions/{id}` for authoritative results.
+4. After receiving `pipeline_done`, if `GET /api/sessions/{id}` shows `status: "running"` (e.g. dialogue triggered a new fact-check), reconnect to `/stream`.
+5. On disconnect mid-run, reconnect once; buffered events are replayed while the hub is open or within the 120-second post-close TTL.
 
 ## Session Lifecycle
 

@@ -10,6 +10,14 @@ from fastapi.testclient import TestClient
 from app.main import create_app
 from factcheck.config import AppSettings
 from factcheck.db import session_store
+from factcheck.graph import event_bus
+
+
+@pytest.fixture(autouse=True)
+def clear_hubs():
+    event_bus._hubs.clear()
+    yield
+    event_bus._hubs.clear()
 
 
 @pytest.fixture
@@ -128,3 +136,53 @@ def test_list_and_delete_sessions(client, temp_db) -> None:
     assert delete_response.status_code == 200
     assert delete_response.json()["deleted"] is True
     assert session_store.get_session("sess-list") is None
+
+
+def test_stream_returns_404_for_missing_session(client, temp_db) -> None:
+    response = client.get("/api/sessions/missing-id/stream")
+    assert response.status_code == 404
+
+
+def test_stream_returns_409_when_no_hub_and_session_done(client, temp_db) -> None:
+    session_store.save_factcheck_session(
+        "sess-done-stream",
+        raw_input="Done claim.",
+        claim_results=[],
+        final_report="Report.",
+        db_path=temp_db,
+    )
+
+    response = client.get("/api/sessions/sess-done-stream/stream")
+
+    assert response.status_code == 409
+    detail = response.json()["detail"]
+    assert detail["code"] == "stream_missed"
+    assert detail["session_status"] == "done"
+
+
+def test_stream_returns_200_with_stream_open_after_create(
+    client, temp_db, monkeypatch
+) -> None:
+    monkeypatch.setattr(
+        "app.routers.sessions._run_and_persist",
+        AsyncMock(),
+    )
+
+    async def fake_stream(session_id: str):
+        yield f'event: stream_open\ndata: {{"session_id":"{session_id}"}}\n\n'
+
+    monkeypatch.setattr("app.routers.sessions.stream_events", fake_stream)
+
+    create_response = client.post(
+        "/api/sessions",
+        json={"input": "The Earth is round."},
+    )
+    session_id = create_response.json()["session_id"]
+
+    response = client.get(f"/api/sessions/{session_id}/stream")
+
+    assert response.status_code == 200
+    assert "event: stream_open" in response.text
+    assert session_id in response.text
+    assert event_bus.get_hub(session_id) is not None
+

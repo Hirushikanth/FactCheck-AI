@@ -20,7 +20,7 @@ from factcheck.db.session_store import (
 )
 from factcheck.dialogue import run_dialogue
 from factcheck.dialogue.schemas import DialogueOutput
-from factcheck.graph.event_bus import create_session_queue
+from factcheck.graph.event_bus import create_session_hub
 from factcheck.graph.runner import run_dialogue_with_events, run_factcheck_with_events
 
 logger = logging.getLogger(__name__)
@@ -114,7 +114,7 @@ async def _trigger_new_factcheck(session_id: str, claim_text: str) -> None:
         claim_text,
         "dialogue",
     )
-    create_session_queue(session_id)
+    create_session_hub(session_id, run_id=run_id)
     try:
         result = await run_factcheck_with_events(session_id=session_id, text=claim_text)
         claim_results = [dict(cr) for cr in result.get("claim_results", [])]

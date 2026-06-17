@@ -13,10 +13,10 @@ from factcheck.graph import event_bus, runner
 
 
 @pytest.fixture(autouse=True)
-def clear_queues():
-    event_bus._queues.clear()
+def clear_hubs():
+    event_bus._hubs.clear()
     yield
-    event_bus._queues.clear()
+    event_bus._hubs.clear()
 
 
 def _validated_claim() -> ValidatedClaim:
@@ -72,7 +72,7 @@ async def test_run_factcheck_with_events_emits_contract_events(monkeypatch) -> N
 
     monkeypatch.setattr(runner, "build_graph", lambda: fake_graph)
 
-    event_bus.create_session_queue("sess-runner")
+    event_bus.create_session_hub("sess-runner")
     collected: list[dict] = []
 
     async def capture_push(session_id: str, event: str, data: dict) -> None:
@@ -110,7 +110,7 @@ async def test_run_factcheck_with_events_emits_pipeline_error(monkeypatch) -> No
 
     monkeypatch.setattr(runner, "build_graph", lambda: _FailingGraph())
 
-    event_bus.create_session_queue("sess-error")
+    event_bus.create_session_hub("sess-error")
     collected: list[str] = []
 
     async def capture_push(session_id: str, event: str, data: dict) -> None:

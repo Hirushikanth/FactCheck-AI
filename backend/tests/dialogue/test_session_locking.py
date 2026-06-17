@@ -106,7 +106,7 @@ async def test_trigger_new_factcheck_appends_run_preserves_original(temp_db, mon
         "run_factcheck_with_events",
         fake_run_factcheck_with_events,
     )
-    monkeypatch.setattr(dialogue_service, "create_session_queue", lambda session_id: None)
+    monkeypatch.setattr(dialogue_service, "create_session_hub", lambda session_id, run_id=None: None)
 
     await dialogue_service._trigger_new_factcheck("sess-refact", "New claim.")
 
@@ -137,7 +137,7 @@ async def test_trigger_new_factcheck_calls_try_acquire(temp_db, monkeypatch) -> 
         "run_factcheck_with_events",
         fake_run_factcheck_with_events,
     )
-    monkeypatch.setattr(dialogue_service, "create_session_queue", lambda session_id: None)
+    monkeypatch.setattr(dialogue_service, "create_session_hub", lambda session_id, run_id=None: None)
 
     with patch.object(dialogue_service, "try_acquire_session", return_value=True) as store_acquire:
         await dialogue_service._trigger_new_factcheck("sess-acquire", "New claim.")

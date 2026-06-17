@@ -30,7 +30,12 @@ from factcheck.db.session_store import (
     update_session_status,
 )
 from factcheck.dialogue.service import run_dialogue_turn_background
-from factcheck.graph.event_bus import create_session_queue, stream_events
+from factcheck.graph.event_bus import (
+    StreamUnavailable,
+    create_session_hub,
+    resolve_stream,
+    stream_events,
+)
 from factcheck.graph.runner import run_factcheck_with_events
 
 logger = logging.getLogger(__name__)
@@ -74,7 +79,7 @@ async def start_session(
     session_id = str(uuid.uuid4())
 
     run_id = await asyncio.to_thread(create_session, session_id, body.input)
-    create_session_queue(session_id)
+    create_session_hub(session_id, run_id=run_id)
     background_tasks.add_task(_run_and_persist, session_id, run_id, body.input)
 
     return CreateSessionResponse(session_id=session_id, status="running")
@@ -83,6 +88,28 @@ async def start_session(
 @router.get("/{session_id}/stream")
 async def stream_session(session_id: str) -> StreamingResponse:
     """SSE endpoint streaming pipeline progress for a session."""
+    if not await asyncio.to_thread(session_exists, session_id):
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    session = await asyncio.to_thread(get_session, session_id)
+    assert session is not None
+
+    try:
+        await resolve_stream(session_id, session)
+    except StreamUnavailable as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": exc.code,
+                "session_status": exc.session_status,
+                "active_run_id": exc.active_run_id,
+                "hint": (
+                    "Open the stream immediately after POST 202, or use "
+                    f"GET /api/sessions/{session_id} for final state."
+                ),
+            },
+        ) from exc
+
     return StreamingResponse(
         stream_events(session_id),
         media_type="text/event-stream",
@@ -115,7 +142,7 @@ async def post_message(
         raise HTTPException(status_code=409, detail="Session pipeline is not finished yet")
 
     message_id = str(uuid.uuid4())
-    create_session_queue(session_id)
+    create_session_hub(session_id)
     background_tasks.add_task(run_dialogue_turn_background, session_id, body.message)
 
     return PostMessageResponse(message_id=message_id)
