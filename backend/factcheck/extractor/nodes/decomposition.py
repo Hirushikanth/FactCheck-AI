@@ -16,6 +16,7 @@ from factcheck.extractor.schemas import (
     ExtractorState,
     PotentialClaim,
 )
+from factcheck.extractor.utils.assertion_profile import sentence_has_compound_structure
 from factcheck.llm.extractor_structured import call_extractor_structured_output
 from factcheck.llm.factory import get_extractor_llm
 
@@ -52,8 +53,22 @@ class DecompositionOutput(BaseModel):
 async def _decomposition_stage(
     item: DisambiguatedContent,
     llm: object,
+    *,
+    direct_claim: bool,
 ) -> tuple[list[PotentialClaim], ExtractorStageFailure | None]:
     sentence = item.disambiguated_sentence
+    original = item.original_selected_item.original_context_item
+
+    if direct_claim and not sentence_has_compound_structure(sentence):
+        return [
+            PotentialClaim(
+                claim_text=sentence,
+                disambiguated_sentence=sentence,
+                original_sentence=original.original_sentence,
+                original_index=original.original_index,
+            )
+        ], None
+
     context = item.original_selected_item.preceding_context_item.context_for_llm
 
     response = await call_extractor_structured_output(
@@ -113,9 +128,13 @@ async def decomposition_node(state: ExtractorState) -> dict[str, list[PotentialC
         num_ctx=DECOMPOSITION_CONFIG["num_ctx"],
     )
     stage_failures = list(state.stage_failures)
+    direct_claim = state.resolved_extraction_mode == "direct_claim"
 
     results = await asyncio.gather(
-        *(_decomposition_stage(item, llm) for item in state.disambiguated_contents)
+        *(
+            _decomposition_stage(item, llm, direct_claim=direct_claim)
+            for item in state.disambiguated_contents
+        )
     )
     potential_claims: list[PotentialClaim] = []
     for claims, failure in results:

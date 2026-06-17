@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import time
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 from factcheck.dialogue.schemas import ConversationSummary, DialogueOutput, DialogueTurn
 from factcheck.graph.event_bus import close_session_queue, push_event
@@ -23,11 +23,16 @@ async def run_factcheck_with_events(
     session_id: str,
     text: str,
     started_at: float | None = None,
+    extraction_mode: Literal["auto", "claim", "document"] = "auto",
 ) -> FactCheckState:
     """Run the fact-check pipeline and emit SSE events for each stage."""
     start = started_at if started_at is not None else time.monotonic()
     current_agent = "extractor"
-    state: FactCheckState = _initial_state(session_id=session_id, text=text)
+    state: FactCheckState = _initial_state(
+        session_id=session_id,
+        text=text,
+        extraction_mode=extraction_mode,
+    )
     seen_agents: set[str] = set()
 
     try:

@@ -9,6 +9,8 @@ See ``factcheck.dialogue`` for the dialogue agent entry point.
 
 from __future__ import annotations
 
+from typing import Literal
+
 from langgraph.graph import END, START, StateGraph
 
 from factcheck.agents.extractor import extractor_node
@@ -36,9 +38,15 @@ def build_graph():
     return graph.compile()
 
 
-def _initial_state(*, session_id: str, text: str) -> FactCheckState:
+def _initial_state(
+    *,
+    session_id: str,
+    text: str,
+    extraction_mode: Literal["auto", "claim", "document"] = "auto",
+) -> FactCheckState:
     return {
         "raw_input": text,
+        "extraction_mode": extraction_mode,
         "extracted_claims": [],
         "claim_results": [],
         "final_report": None,
@@ -54,9 +62,12 @@ async def run_factcheck_pipeline(
     *,
     session_id: str,
     text: str,
+    extraction_mode: Literal["auto", "claim", "document"] = "auto",
 ) -> FactCheckState:
     """Run the full fact-check pipeline for *text* and return the final state."""
 
     graph = build_graph()
-    result: FactCheckState = await graph.ainvoke(_initial_state(session_id=session_id, text=text))
+    result: FactCheckState = await graph.ainvoke(
+        _initial_state(session_id=session_id, text=text, extraction_mode=extraction_mode)
+    )
     return result

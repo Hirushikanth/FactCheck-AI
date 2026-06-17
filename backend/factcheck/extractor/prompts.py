@@ -22,33 +22,41 @@ Return ONLY one JSON object. No markdown. No preamble.
 JSON shape (populate keys in this exact order):
 {"no_verifiable_claims": bool, "remains_unchanged": bool, "processed_sentence": string|null, "reasoning": string}
 
-You are an assistant to a fact-checker. Given an excerpt and a sentence of interest, decide whether the sentence contains at least one specific and verifiable proposition. If yes, return a complete sentence containing only verifiable information.
+You are an assistant to a fact-checker. Given an excerpt and a sentence of interest, decide whether the sentence contains at least one specific checkable factual proposition as stated. If yes, return a complete sentence containing that proposition.
 
 Rules:
-- Lack-of-information sentences (e.g. "the dataset does not contain X") are NOT verifiable propositions.
-- Truth or falsity of the proposition does NOT matter.
+- Lack-of-information sentences (e.g. "the dataset does not contain X") are NOT checkable propositions.
+- Truth or falsity of the proposition does NOT matter. Do NOT reject because a claim is false, debunked, a myth, a proverb, or unsupported by the excerpt.
 - Ambiguous terms (pronouns, etc.) do NOT disqualify a sentence; assume the fact-checker can resolve them later.
-- Ignore citations when deciding verifiability.
+- Ignore citations when deciding checkability.
 - Fidelity rule: extract what the sentence asserts, not what is true. Do not correct false claims.
-- "The pyramids were built by aliens" must remain unchanged if already a verifiable assertion.
-- "Drinking bleach cures COVID-19" must remain unchanged if already a verifiable assertion.
+- "The pyramids were built by aliens" must remain unchanged if already a checkable assertion.
+- "Drinking bleach cures COVID-19" must remain unchanged if already a checkable assertion.
+- "The Great Wall of China is visible from space with the naked eye." must remain unchanged if already a checkable assertion.
+- "Lightning never strikes the same place twice." must remain unchanged if already a checkable assertion.
 - Use surrounding context from the excerpt when deciding if the sentence is only an intro/conclusion.
 
-Examples of NON-verifiable sentences:
+Reject ONLY these kinds of sentences:
+- Opinions or recommendations (e.g. "progress should be inclusive")
+- Vague hedges without a concrete assertion (e.g. "AI could lead to advancements")
+- Meta commentary or implications (e.g. "This implies that John Smith is courageous")
+- Intro/conclusion framing with no factual proposition
+
+Examples of NON-checkable sentences:
 - Technological progress should be inclusive
 - AI could lead to advancements in healthcare
 - This implies that John Smith is courageous
 
-Examples of verifiable sentences (with possible rewrites):
+Examples of checkable sentences (with possible rewrites):
 - "The partnership between Company X and Company Y illustrates innovation" -> "There is a partnership between Company X and Company Y"
 - "Jane Doe's approach of embracing adaptability can be valuable advice" -> "Jane Doe's approach includes embracing adaptability"
 - "The Earth is round." -> remains unchanged (remains_unchanged=true)
 
 Field instructions:
-- no_verifiable_claims: true if no specific verifiable proposition; else false
-- remains_unchanged: true if original sentence already contains only verifiable info; else false
-- processed_sentence: complete verifiable sentence, or null if no_verifiable_claims is true
-- reasoning: max 2 sentences explaining the decision (put this field LAST)
+- no_verifiable_claims: true if no specific checkable proposition; else false
+- remains_unchanged: true if original sentence already states a checkable proposition; else false
+- processed_sentence: complete checkable sentence, or null if no_verifiable_claims is true
+- reasoning: max 2 sentences explaining the decision (put this field LAST). Do NOT cite real-world truth, myths, or excerpt support.
 """
 
 DISAMBIGUATION_SYSTEM_PROMPT = """

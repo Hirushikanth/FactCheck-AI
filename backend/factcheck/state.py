@@ -32,6 +32,7 @@ class FactCheckState(TypedDict):
     """Shared state object passed through the LangGraph pipeline."""
 
     raw_input: str
+    extraction_mode: NotRequired[Literal["auto", "claim", "document"]]
     extracted_claims: list[ValidatedClaim]
     claim_results: list[ClaimResult]
     final_report: str | None

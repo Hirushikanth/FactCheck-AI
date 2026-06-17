@@ -43,8 +43,12 @@ async def test_extractor_node_writes_ordered_case_insensitive_unique_claims(monk
         original_index=1,
     )
 
-    async def fake_run_extractor(raw_input: str) -> ExtractorRunResult:
+    async def fake_run_extractor(
+        raw_input: str,
+        extraction_mode: str = "auto",
+    ) -> ExtractorRunResult:
         assert raw_input == "Ada wrote the first algorithm."
+        assert extraction_mode == "auto"
         return ExtractorRunResult(
             claims=[first_claim, duplicate_claim, second_claim],
             stage_failures=[],
@@ -77,7 +81,10 @@ async def test_extractor_node_emits_stage_failed_sse(monkeypatch) -> None:
         attempts=3,
     )
 
-    async def fake_run_extractor(raw_input: str) -> ExtractorRunResult:
+    async def fake_run_extractor(
+        raw_input: str,
+        extraction_mode: str = "auto",
+    ) -> ExtractorRunResult:
         return ExtractorRunResult(claims=[], stage_failures=[failure])
 
     monkeypatch.setattr(extractor, "run_extractor", fake_run_extractor)

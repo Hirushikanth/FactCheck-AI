@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 
 from factcheck.extractor import run_extractor
 from factcheck.extractor.schemas import ValidatedClaim
 from factcheck.graph.event_bus import push_event
 from factcheck.state import FactCheckState
+
+
+logger = logging.getLogger(__name__)
 
 
 def _unique_claims(claims: list[ValidatedClaim]) -> list[ValidatedClaim]:
@@ -37,7 +41,15 @@ async def extractor_node(state: FactCheckState) -> dict[str, list[ValidatedClaim
     """Populate extracted claims from the raw user input."""
 
     session_id = state["session_id"]
-    result = await run_extractor(state["raw_input"])
+    extraction_mode = state.get("extraction_mode", "auto")
+    result = await run_extractor(state["raw_input"], extraction_mode=extraction_mode)
+
+    if result.resolved_extraction_mode:
+        logger.info(
+            "[extractor] extraction_mode=%s selection_skipped=%s",
+            result.resolved_extraction_mode,
+            result.selection_skipped,
+        )
 
     for failure in result.stage_failures:
         await push_event(

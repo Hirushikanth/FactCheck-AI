@@ -418,6 +418,12 @@ def _split_coordinated_and(sentence: str) -> list[str] | None:
     return None
 
 
+def sentence_has_compound_structure(source_sentence: str) -> bool:
+    """Return whether *source_sentence* has compound clauses worth decomposing."""
+
+    return _coverage_segments(source_sentence) is not None
+
+
 def _coverage_segments(source_sentence: str) -> tuple[str, ...] | None:
     subordinate = _split_subordinate(source_sentence)
     if subordinate:
@@ -469,3 +475,19 @@ def assess_group_coverage(
         decision=CoverageDecision.COMPLETE,
         reason="Claims cover all source clause segments.",
     )
+
+
+def selection_rewrite_preserves_source(
+    *,
+    original: str,
+    processed: str,
+    remains_unchanged: bool,
+    min_overlap: float = 0.85,
+) -> bool:
+    """Return whether a selection rewrite keeps the source assertion."""
+
+    if remains_unchanged:
+        return True
+    allowed_forms = _morphological_forms_union(original)
+    processed_terms = _content_tokens(processed)
+    return _overlap_ratio(processed_terms, allowed_forms) >= min_overlap

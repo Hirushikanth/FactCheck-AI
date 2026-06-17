@@ -5,7 +5,7 @@ from factcheck.extractor.nodes.decomposition import DecompositionOutput
 from factcheck.extractor.nodes.disambiguation import (
     DisambiguationOutput,
     _single_disambiguation_attempt,
-    _needs_contextual_disambiguation,
+    needs_contextual_disambiguation,
 )
 from factcheck.extractor.nodes.sentence_splitter import (
     _sentence_splitter_and_context_creator,
@@ -173,20 +173,20 @@ async def test_validation_node_filters_invalid_and_duplicate_claims(monkeypatch)
 
 
 def test_disambiguation_reference_heuristic_detects_contextual_references() -> None:
-    assert not _needs_contextual_disambiguation(
+    assert not needs_contextual_disambiguation(
         "Ada Lovelace wrote notes about Charles Babbage's Analytical Engine."
     )
-    assert not _needs_contextual_disambiguation(
+    assert not needs_contextual_disambiguation(
         "There is strong evidence of vaccine effectiveness."
     )
-    assert not _needs_contextual_disambiguation(
+    assert not needs_contextual_disambiguation(
         "There are multiple published studies in the literature."
     )
-    assert not _needs_contextual_disambiguation(
+    assert not needs_contextual_disambiguation(
         "Here, the researchers found significant results."
     )
-    assert _needs_contextual_disambiguation("She wrote notes about it.")
-    assert _needs_contextual_disambiguation("The experiments were conducted there.")
+    assert needs_contextual_disambiguation("She wrote notes about it.")
+    assert needs_contextual_disambiguation("The experiments were conducted there.")
 
 
 async def test_disambiguation_skips_existential_there(monkeypatch) -> None:

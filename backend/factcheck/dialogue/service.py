@@ -142,7 +142,11 @@ async def _trigger_new_factcheck(
     )
     create_session_hub(session_id, run_id=run_id)
     try:
-        result = await run_factcheck_with_events(session_id=session_id, text=claim_text)
+        result = await run_factcheck_with_events(
+            session_id=session_id,
+            text=claim_text,
+            extraction_mode="claim",
+        )
         claim_results = [dict(cr) for cr in result.get("claim_results", [])]
         await asyncio.to_thread(
             complete_factcheck_run,

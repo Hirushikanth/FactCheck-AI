@@ -70,7 +70,7 @@ _LOCATIVE_HERE_PATTERN = re.compile(
 )
 
 
-def _needs_contextual_disambiguation(sentence: str) -> bool:
+def needs_contextual_disambiguation(sentence: str) -> bool:
     """Return whether a sentence has obvious references needing context."""
     if _CONTEXTUAL_REFERENCE_PATTERN.search(sentence):
         return True
@@ -81,12 +81,15 @@ def _needs_contextual_disambiguation(sentence: str) -> bool:
     return False
 
 
+_needs_contextual_disambiguation = needs_contextual_disambiguation
+
+
 async def _single_disambiguation_attempt(
     selected_item: SelectedContent,
     llm: object,
 ) -> tuple[bool, str | None]:
     sentence = selected_item.processed_sentence
-    if not _needs_contextual_disambiguation(sentence):
+    if not needs_contextual_disambiguation(sentence):
         return True, sentence.strip()
 
     context = selected_item.preceding_context_item.context_for_llm

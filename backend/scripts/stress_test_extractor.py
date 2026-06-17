@@ -27,6 +27,22 @@ from factcheck.extractor import run_extractor
 
 CASES: list[dict[str, object]] = [
     {
+        "id": "great_wall_myth",
+        "input": "The Great Wall of China is visible from space with the naked eye.",
+        "expect": "Direct-claim route; myth sentence must extract without selection drop.",
+        "checks": lambda claims: bool(claims) and any(
+            "great wall" in c.claim_text.casefold() for c in claims
+        ),
+    },
+    {
+        "id": "lightning_myth",
+        "input": "Lightning never strikes the same place twice.",
+        "expect": "Direct-claim route; proverb-like myth must still extract.",
+        "checks": lambda claims: bool(claims) and any(
+            "lightning" in c.claim_text.casefold() for c in claims
+        ),
+    },
+    {
         "id": "morph_tense",
         "input": "Jane was running the firm.",
         "expect": "Faithful decomposition; tense cleanup OK (runs/running). No fallback.",

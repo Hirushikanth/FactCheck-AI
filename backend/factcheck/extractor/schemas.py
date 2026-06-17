@@ -74,3 +74,5 @@ class ExtractorState(BaseModel):
     validated_claims: list[ValidatedClaim] = Field(default_factory=list)
     stage_failures: list[ExtractorStageFailure] = Field(default_factory=list)
     metadata: str | None = None
+    extraction_mode: Literal["auto", "claim", "document"] = "auto"
+    resolved_extraction_mode: Literal["direct_claim", "document"] | None = None

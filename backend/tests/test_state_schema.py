@@ -35,6 +35,7 @@ def test_claim_result_fields_match_architecture_contract() -> None:
 def test_factcheck_state_fields_match_architecture_contract() -> None:
     assert set(FactCheckState.__annotations__) == {
         "raw_input",
+        "extraction_mode",
         "extracted_claims",
         "claim_results",
         "final_report",
