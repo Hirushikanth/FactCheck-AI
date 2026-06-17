@@ -12,6 +12,7 @@ import logging
 import time
 
 from factcheck.dialogue.schemas import DialogueState, DialogueTurn
+from factcheck.dialogue.utils.history import append_turn_pair
 from factcheck.dialogue.utils.tokens import estimate_tokens
 
 logger = logging.getLogger(__name__)
@@ -37,7 +38,11 @@ async def update_history_node(state: DialogueState) -> dict:
         token_estimate=estimate_tokens(response_text),
     )
 
-    updated_history = list(state.get("dialogue_history", [])) + [user_turn, assistant_turn]
+    updated_history = append_turn_pair(
+        state.get("dialogue_history", []),
+        user_turn,
+        assistant_turn,
+    )
 
     logger.debug(
         "[dialogue][update_history] History now %d turns", len(updated_history)

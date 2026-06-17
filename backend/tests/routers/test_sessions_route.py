@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sqlite3
 from unittest.mock import AsyncMock
 
 import pytest
@@ -96,11 +97,23 @@ def test_post_message_accepts_done_session(client, temp_db, monkeypatch) -> None
     )
 
     assert response.status_code == 202
-    assert response.json()["message_id"]
+    body = response.json()
+    assert body["message_id"]
 
     session = session_store.get_session("sess-done", db_path=temp_db)
     assert session is not None
     assert session["status"] == "running"
+    assert len(session["messages"]) == 1
+    assert session["messages"][0]["role"] == "user"
+    assert session["messages"][0]["content"] == "Tell me more."
+
+    with sqlite3.connect(temp_db) as conn:
+        row = conn.execute(
+            "SELECT id FROM dialogue_history WHERE session_id = ? AND role = 'user'",
+            ("sess-done",),
+        ).fetchone()
+    assert row is not None
+    assert body["message_id"] == str(row[0])
 
 
 def test_post_message_atomic_reject_when_running(client, temp_db) -> None:

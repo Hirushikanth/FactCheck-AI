@@ -605,18 +605,57 @@ def save_user_message(
     session_id: str,
     content: str,
     db_path: Path | str | None = None,
-) -> None:
-    """Persist a user message before a dialogue turn runs."""
+) -> int:
+    """Persist a user message before a dialogue turn runs. Returns the row id."""
     resolved = _resolve_db_path(db_path)
     ensure_dialogue_tables(resolved)
     with _get_connection(resolved) as conn:
-        conn.execute(
+        cursor = conn.execute(
             """
             INSERT INTO dialogue_history
               (session_id, role, content, timestamp, intent, token_estimate)
             VALUES (?, 'user', ?, ?, NULL, 0)
             """,
             (session_id, content, time.time()),
+        )
+        return int(cursor.lastrowid)
+
+
+def update_last_user_message(
+    session_id: str,
+    *,
+    content: str,
+    intent: str | None,
+    token_estimate: int,
+    db_path: Path | str | None = None,
+    conn: sqlite3.Connection | None = None,
+) -> None:
+    """Update the most recent user message row for a session."""
+    if conn is not None:
+        conn.execute(
+            """
+            UPDATE dialogue_history
+            SET content = ?, intent = ?, token_estimate = ?
+            WHERE id = (
+                SELECT id FROM dialogue_history
+                WHERE session_id = ? AND role = 'user'
+                ORDER BY timestamp DESC, id DESC
+                LIMIT 1
+            )
+            """,
+            (content, intent, token_estimate, session_id),
+        )
+        return
+
+    resolved = _resolve_db_path(db_path)
+    ensure_dialogue_tables(resolved)
+    with _get_connection(resolved) as own_conn:
+        update_last_user_message(
+            session_id,
+            content=content,
+            intent=intent,
+            token_estimate=token_estimate,
+            conn=own_conn,
         )
 
 
@@ -817,6 +856,17 @@ def persist_dialogue_state(
     new_turns = result["dialogue_history"][prior_history_len:]
 
     with _get_connection(resolved) as conn:
+        if prior_history_len > 0:
+            enriched_user = result["dialogue_history"][prior_history_len - 1]
+            if enriched_user["role"] == "user":
+                update_last_user_message(
+                    session_id,
+                    content=enriched_user["content"],
+                    intent=enriched_user.get("intent"),
+                    token_estimate=enriched_user.get("token_estimate", 0),
+                    conn=conn,
+                )
+
         for turn in new_turns:
             conn.execute(
                 """

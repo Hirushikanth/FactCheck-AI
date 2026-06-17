@@ -63,6 +63,59 @@ async def test_run_dialogue_turn_background_sets_done_on_success(temp_db, monkey
 
 
 @pytest.mark.asyncio
+async def test_run_dialogue_turn_background_persists_without_duplicate_users(
+    temp_db, monkeypatch
+) -> None:
+    _seed_done_session("sess-opt", temp_db)
+    session_store.save_user_message("sess-opt", "Hello?", db_path=temp_db)
+
+    async def fake_run_dialogue_with_events(**kwargs):
+        history = list(kwargs["dialogue_history"])
+        user_ts = history[-1]["timestamp"]
+        enriched_user = {
+            "role": "user",
+            "content": "Hello?",
+            "timestamp": user_ts,
+            "intent": "clarification",
+            "token_estimate": 2,
+        }
+        assistant = {
+            "role": "assistant",
+            "content": "Answer.",
+            "timestamp": user_ts + 1,
+            "intent": None,
+            "token_estimate": 1,
+        }
+        return {
+            "response": "Answer.",
+            "intent": "clarification",
+            "dialogue_history": history[:-1] + [enriched_user, assistant],
+            "conversation_summary": None,
+            "compressed_fc_context": None,
+            "needs_new_factcheck": False,
+            "new_claim_text": None,
+            "error": None,
+        }
+
+    monkeypatch.setattr(
+        dialogue_service,
+        "run_dialogue_with_events",
+        fake_run_dialogue_with_events,
+    )
+
+    await dialogue_service.run_dialogue_turn_background("sess-opt", "Hello?")
+
+    session = session_store.get_session("sess-opt", db_path=temp_db)
+    assert session is not None
+    assert session["status"] == "done"
+    assert len(session["messages"]) == 2
+    assert session["messages"][0]["role"] == "user"
+    assert session["messages"][0]["content"] == "Hello?"
+    assert session["messages"][1]["role"] == "assistant"
+    assert session["messages"][1]["content"] == "Answer."
+
+
+@pytest.mark.asyncio
 async def test_run_dialogue_turn_background_sets_error_on_failure(temp_db, monkeypatch) -> None:
     _seed_done_session("sess-bg-err", temp_db)
 

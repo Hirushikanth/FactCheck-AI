@@ -24,6 +24,7 @@ from factcheck.db.session_store import (
     delete_session,
     get_session,
     list_sessions,
+    save_user_message,
     session_exists,
     set_active_run,
     try_acquire_session,
@@ -141,7 +142,9 @@ async def post_message(
     if not await asyncio.to_thread(try_acquire_session, session_id):
         raise HTTPException(status_code=409, detail="Session pipeline is not finished yet")
 
-    message_id = str(uuid.uuid4())
+    message_id = str(
+        await asyncio.to_thread(save_user_message, session_id, body.message)
+    )
     create_session_hub(session_id)
     background_tasks.add_task(run_dialogue_turn_background, session_id, body.message)
 

@@ -14,6 +14,7 @@ import time
 
 from factcheck.dialogue.prompts import new_claim_acknowledgement_prompt
 from factcheck.dialogue.schemas import DialogueState, DialogueTurn
+from factcheck.dialogue.utils.history import append_turn_pair
 from factcheck.dialogue.utils.tokens import estimate_tokens
 from factcheck.llm.concurrency import get_ollama_semaphore
 from factcheck.llm.factory import get_dialogue_acknowledge_llm
@@ -56,7 +57,11 @@ async def acknowledge_new_claim_node(state: DialogueState) -> dict:
         intent=None,
         token_estimate=estimate_tokens(ack),
     )
-    updated_history = list(state.get("dialogue_history", [])) + [user_turn, assistant_turn]
+    updated_history = append_turn_pair(
+        state.get("dialogue_history", []),
+        user_turn,
+        assistant_turn,
+    )
 
     logger.info("[dialogue][acknowledge_new_claim] Acknowledgement sent.")
 
