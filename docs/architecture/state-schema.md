@@ -11,6 +11,16 @@ The shared state schema is the contract between all implemented agents. Changes 
 | `done` | Pipeline completed successfully and `final_report` is available. |
 | `error` | An unrecoverable error occurred and `error` contains the reason. |
 
+## ProcessingStatus
+
+Optional field on `ClaimResult.processing_status`. Omitted when processing succeeds (`ok`).
+
+| Value | Meaning |
+|---|---|
+| `ok` | Verifier completed normally (field omitted from serialized results). |
+| `error` | Verifier failed for this claim; see `processing_error`. |
+| `degraded` | Verifier returned a verdict but with reduced confidence or partial failure. |
+
 ## ClaimResult
 
 | Field | Type | Description |
@@ -22,6 +32,10 @@ The shared state schema is the contract between all implemented agents. Changes 
 | `sources` | `list[str]` | Source URLs corresponding to evidence excerpts. |
 | `reasoning` | `str` | Explanation connecting evidence to verdict. |
 | `search_queries` | `list[str]` | Exact web search queries issued for the claim. |
+| `source_sentence` | `str \| null` | Original sentence the claim was extracted from. Optional (`NotRequired`). |
+| `fidelity_status` | `str \| null` | Extractor fidelity outcome (`faithful` or `fallback`). Optional (`NotRequired`). |
+| `processing_status` | `ok \| error \| degraded` | Verifier processing outcome. Optional (`NotRequired`); omitted when `ok`. |
+| `processing_error` | `str \| null` | Error detail when `processing_status` is `error`. Optional (`NotRequired`). |
 
 Evidence hit pre-filtering uses Okapi BM25 re-ranking over each search result set before the evaluator LLM is invoked. Source credibility uses static domain-tier heuristics (high/medium/low) applied during hit re-ranking and exposed to the evaluator; this is not a full reputation database.
 
@@ -30,6 +44,7 @@ Evidence hit pre-filtering uses Okapi BM25 re-ranking over each search result se
 | Field | Type | Owner | Description |
 |---|---|---|---|
 | `raw_input` | `str` | User Input | Original user-submitted text. |
+| `extraction_mode` | `auto \| claim \| document` | API / pipeline | How the extractor interprets input. Optional (`NotRequired`). |
 | `extracted_claims` | `list[ValidatedClaim]` | Extractor | Atomic, self-contained factual claims with original sentence context. |
 | `claim_results` | `list[ClaimResult]` | Verifier | One result per extracted claim, populated in a single parallel verifier invocation (order matches `extracted_claims`). |
 | `final_report` | `str | None` | Reporter | Final markdown report. |

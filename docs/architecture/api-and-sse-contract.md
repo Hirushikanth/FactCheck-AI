@@ -10,10 +10,10 @@ This document records the implemented REST and Server-Sent Events contract for t
 | `POST` | `/api/sessions` | `{ "input": "string" }` | `{ "session_id": "string", "status": "string" }` | Implemented (202) |
 | `GET` | `/api/sessions/{id}/stream` | none | SSE event stream | Implemented |
 | `GET` | `/api/sessions/{id}` | none | `SessionDetail` | Implemented |
-| `POST` | `/api/sessions/{id}/messages` | `{ "message": "string" }` | `{ "message_id": "string" }` | Implemented (202) |
+| `POST` | `/api/sessions/{id}/messages` | `{ "message": "string" }` | `{ "message_id": "string" }` | Implemented (202); **409** if session not `done` |
 | `GET` | `/api/sessions` | none | `list[SessionSummary]` | Implemented |
 | `DELETE` | `/api/sessions/{id}` | none | `{ "deleted": true }` | Implemented |
-| `POST` | `/api/dialogue/{session_id}` | `{ "message": "string" }` | `DialogueResponse` | Implemented |
+| `POST` | `/api/dialogue/{session_id}` | `{ "message": "string" }` | `DialogueResponse` | Implemented; **409** if session not `done` |
 
 ### Health Response
 
@@ -91,6 +91,16 @@ Events are pushed to the per-session event hub and consumed via `GET /api/sessio
 | `409` | No subscribable hub (missed window or pipeline orphaned) | `{ "detail": { "code": "stream_missed" \| "pipeline_orphaned", "session_status": "string", "active_run_id": "string \| null", "hint": "string" } }` |
 | `200` | Active or replayable hub | SSE stream (first event is always `stream_open`) |
 
+### Session Locking Errors
+
+`POST /api/sessions/{id}/messages` and `POST /api/dialogue/{session_id}` call `try_acquire_session`, which atomically transitions the session from `done` to `running`. If the session is already `running` or `error`, the request is rejected:
+
+| Status | When | Response |
+|---|---|---|
+| `409` | Session not in `done` state | `{ "detail": "Session pipeline is not finished yet" }` |
+
+Clients must wait for the active pipeline to finish (or fetch final state via `GET /api/sessions/{id}`) before posting follow-up messages.
+
 **409 codes:**
 
 - `stream_missed` — session is `done` or `error` and no hub is available (client connected too late; use `GET /api/sessions/{id}` for final state).
@@ -109,7 +119,7 @@ Events are pushed to the per-session event hub and consumed via `GET /api/sessio
 1. `POST /api/sessions` creates a session and **run #1** (`triggered_by: initial`), returns `202` with `status: "running"`, and starts the pipeline in the background.
 2. Client opens `GET /api/sessions/{id}/stream` to receive SSE events.
 3. On completion, `GET /api/sessions/{id}` returns the full session with `status: "done"`. Top-level `raw_input`, `claim_results`, and `final_report` reflect the **active run**; `runs[]` lists all runs in order.
-4. `POST /api/sessions/{id}/messages` posts a follow-up message (requires `status: "done"`); dialogue runs in the background and emits SSE events on the same stream endpoint.
+4. `POST /api/sessions/{id}/messages` posts a follow-up message (requires `status: "done"`); returns **409** if the session is `running` or `error`. Dialogue runs in the background and emits SSE events on the same stream endpoint.
 5. If dialogue detects a new claim, a **new run** is appended (`triggered_by: dialogue`), becomes the active run, and prior runs are preserved in `runs[]`.
 6. Alternatively, `POST /api/dialogue/{session_id}` runs dialogue synchronously and returns the response directly.
 

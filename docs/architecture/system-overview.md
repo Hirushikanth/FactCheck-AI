@@ -70,14 +70,15 @@ flowchart LR
     SentenceSplitter[sentence_splitter] --> Selection[selection]
     Selection --> Disambiguation[disambiguation]
     Disambiguation --> Decomposition[decomposition]
-    Decomposition --> Validation[validation]
+    Decomposition --> Fidelity[fidelity]
+    Fidelity --> Validation[validation]
 ```
 
-Selection and disambiguation use voting for precision. Decomposition turns decontextualized sentences into atomic claims, and validation filters incomplete claim fragments before the main pipeline writes `extracted_claims`.
+Selection and disambiguation use voting for precision. Decomposition turns decontextualized sentences into atomic claims. Fidelity checks that extracted claims faithfully represent the source sentence before validation filters incomplete claim fragments and the main pipeline writes `extracted_claims`.
 
 ## Design Principles
 
-- Schema-first development: `factcheck/state.py` is the shared contract between agents; changes require review of all readers and writers.
+- Schema-first development: `backend/factcheck/state.py` is the shared contract between agents; changes require review of all readers and writers.
 - Configuration over code: host URLs, model names, timeouts, and debug flags live in `.env`.
 - Fail-visible errors: pipeline failures populate state error fields and emit `pipeline_error` SSE events rather than failing silently.
 - Privacy by architecture: user data remains local; cloud LLM APIs are not used.

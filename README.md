@@ -55,7 +55,7 @@ OLLAMA_BASE_URL=http://<windows-lan-ip>:11434
 
 See [`docs/setup/ollama.md`](docs/setup/ollama.md) for the full setup runbook.
 
-The original proposal referenced Qwen 2.5 3B, but the implementation uses Mistral 7B because it produced more reliable structured verifier outputs during development.
+The original proposal referenced Qwen 2.5 3B; development moved to Mistral 7B for more reliable structured verifier outputs, and the current default is `gemma4`.
 
 ## Environment Variables
 
@@ -197,18 +197,21 @@ Open `http://localhost:8080`. Ensure `DEV_CORS_ORIGINS` in `backend/.env` includ
 ├── backend/
 │   ├── app/
 │   │   ├── main.py                  # FastAPI entry point (v0.6.0)
-│   │   └── routers/                 # sessions, dialogue
+│   │   ├── routers/                 # sessions, dialogue
+│   │   └── schemas/                 # Pydantic API models
+│   ├── scripts/                     # stress tests (extractor, verifier)
 │   └── factcheck/
 │       ├── agents/                  # orchestrator, extractor, verifier, reporter
 │       ├── config.py                # AppSettings from .env
 │       ├── db/                      # SQLite session store
 │       ├── dialogue/                # follow-up dialogue graph
 │       ├── extractor/               # Claimify-style subgraph
-│       ├── graph/                   # pipeline runner + SSE event bus
+│       ├── graph/                   # pipeline runner + SSE event hub
 │       ├── llm/                     # Ollama factory + structured output
 │       ├── reporter/                # report generation
 │       ├── search/                  # DuckDuckGo → Tavily → Serper fallback
 │       ├── state.py                 # shared FactCheckState schema
+│       ├── streaming/               # SSE event formatting
 │       └── verifier/                # evidence retrieval + evaluation
 ├── docs/
 │   ├── architecture/              # system overview, state schema, API contract

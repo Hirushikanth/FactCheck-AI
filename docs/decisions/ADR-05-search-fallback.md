@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted for Phase 2.
+Implemented (v0.6.0).
 
 ## Decision
 
@@ -14,4 +14,4 @@ DuckDuckGo remains the no-cost default and supports the local-first academic pro
 
 ## Consequences
 
-The Verifier Agent should call the shared search fallback layer in Phase 3 instead of binding directly to a single provider. Paid providers are skipped unless `TAVILY_API_KEY` or `SERPER_API_KEY` is present, so local development still works without paid API credentials.
+The Verifier Agent calls the shared search fallback layer in `backend/factcheck/search/fallback.py` instead of binding directly to a single provider. Paid providers are skipped unless `TAVILY_API_KEY` or `SERPER_API_KEY` is present, so local development still works without paid API credentials.

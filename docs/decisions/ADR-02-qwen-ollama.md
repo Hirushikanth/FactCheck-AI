@@ -1,16 +1,22 @@
-# ADR-02: Mistral 7B via Ollama
+# ADR-02: Gemma via Ollama
 
 ## Status
 
-Accepted for Phase 1.
+Accepted for Phase 1. Current default: `gemma4` (v0.6.0).
 
 ## Decision
 
-Use `mistral:7b` served by Ollama for local LLM inference.
+Use `gemma4` served by Ollama for local LLM inference.
 
 ## Rationale
 
-The project proposal originally selected Qwen 2.5 3B, but development moved to Mistral 7B because Qwen was not reliable enough for structured verifier outputs. Mistral 7B remains practical for local or LAN-hosted Ollama inference while improving reasoning stability for the verifier.
+The project needs a model that produces reliable structured outputs for the verifier while remaining practical for local or LAN-hosted Ollama inference on academic hardware.
+
+## Model history
+
+1. **Qwen 2.5 3B** — original proposal selection; dropped because structured verifier outputs were not reliable enough.
+2. **Mistral 7B** — interim default during early development; improved reasoning stability for the verifier.
+3. **`gemma4`** — current default; better structured-output behaviour for extractor and verifier workloads in this codebase.
 
 ## Consequences
 

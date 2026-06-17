@@ -31,7 +31,7 @@ async def main() -> int:
     _load_env_file()
 
     base_url = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/")
-    model = os.environ.get("OLLAMA_MODEL", "mistral:7b")
+    model = os.environ.get("OLLAMA_MODEL", "gemma4")
     timeout = float(os.environ.get("OLLAMA_TIMEOUT", "120"))
 
     try:
