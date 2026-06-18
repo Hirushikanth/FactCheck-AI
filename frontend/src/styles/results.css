@@ -1,0 +1,263 @@
+/* ── Results layout ────────────────────────────────────────────────────────── */
+.results-layout {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: auto;
+}
+
+.results-loading {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: auto;
+  gap: 12px;
+}
+
+/* ── Verdict hero ────────────────────────────────────────────────────────────── */
+.verdict-hero {
+  padding: 28px 28px 22px;
+  border-bottom: 0.5px solid var(--color-border-tertiary);
+  display: flex;
+  align-items: flex-start;
+  gap: 20px;
+  flex-shrink: 0;
+}
+
+.verdict-icon-wrap {
+  width: 52px;
+  height: 52px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.verdict-details {
+  flex: 1;
+  min-width: 0;
+}
+
+.verdict-label {
+  font-size: 11px;
+  letter-spacing: 0.07em;
+  color: var(--color-text-tertiary);
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}
+
+.verdict-claim {
+  font-size: 17px;
+  font-weight: 500;
+  color: var(--color-text-primary);
+  line-height: 1.4;
+  margin-bottom: 10px;
+}
+
+.verdict-pills {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 0;
+}
+
+.pill {
+  font-size: 12px;
+  padding: 3px 10px;
+  border-radius: 99px;
+  border: 0.5px solid var(--color-border-tertiary);
+  color: var(--color-text-secondary);
+  background: transparent;
+}
+
+/* Confidence */
+.confidence-bar-wrap {
+  margin-top: 14px;
+}
+
+.confidence-meta {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  margin-bottom: 5px;
+}
+
+.confidence-val {
+  font-weight: 500;
+  color: var(--color-text-primary);
+}
+
+.confidence-bar {
+  height: 4px;
+  background: var(--color-bg-secondary);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.confidence-fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.5s ease;
+}
+
+/* ── Claims strip (multi-claim) ──────────────────────────────────────────────── */
+.claims-strip {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 28px;
+  border-bottom: 0.5px solid var(--color-border-tertiary);
+  flex-shrink: 0;
+}
+
+.claim-chip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border: 0.5px solid var(--color-border-tertiary);
+  border-radius: var(--radius-md);
+  font-size: 13px;
+}
+
+.claim-chip-badge {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 99px;
+  font-weight: 500;
+  flex-shrink: 0;
+}
+
+.claim-chip-text {
+  flex: 1;
+  color: var(--color-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.claim-chip-conf {
+  font-size: 11px;
+  color: var(--color-text-tertiary);
+  flex-shrink: 0;
+}
+
+/* ── Body columns ────────────────────────────────────────────────────────────── */
+.results-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  flex: 1;
+  overflow: hidden;
+}
+
+.results-col {
+  padding: 20px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow-y: auto;
+}
+
+.results-col:first-child {
+  border-right: 0.5px solid var(--color-border-tertiary);
+}
+
+/* ── Source cards ────────────────────────────────────────────────────────────── */
+.source-card {
+  padding: 10px 12px;
+  border: 0.5px solid var(--color-border-tertiary);
+  border-radius: var(--radius-md);
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  transition: background 0.12s;
+}
+
+.source-card:hover {
+  background: var(--color-bg-secondary);
+}
+
+.source-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  background: var(--color-bg-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: var(--color-text-secondary);
+}
+
+.source-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.source-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text-primary);
+  line-height: 1.3;
+  text-decoration: none;
+  display: block;
+}
+
+.source-title:hover {
+  text-decoration: underline;
+}
+
+.source-meta {
+  font-size: 11px;
+  color: var(--color-text-tertiary);
+  margin-top: 2px;
+}
+
+.source-excerpt {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  margin-top: 6px;
+  line-height: 1.5;
+}
+
+/* ── Agent reasoning ─────────────────────────────────────────────────────────── */
+.agent-step {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.agent-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--color-border-secondary);
+  margin-top: 6px;
+  flex-shrink: 0;
+}
+
+.agent-content {
+  flex: 1;
+  font-size: 13px;
+  color: var(--color-text-secondary);
+  line-height: 1.55;
+}
+
+.agent-name {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--color-text-primary);
+  margin-bottom: 3px;
+  letter-spacing: 0.01em;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.agent-name-icon {
+  display: flex;
+  align-items: center;
+  color: var(--color-text-tertiary);
+}

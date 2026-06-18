@@ -161,3 +161,8 @@ poetry.toml
 # --- Git worktrees -----------------------------------------------------------
 .worktrees/
 worktrees/
+
+# --- Frontend ----------------------------------------------------------------
+frontend/node_modules/
+frontend/dist/
+frontend/.env.local

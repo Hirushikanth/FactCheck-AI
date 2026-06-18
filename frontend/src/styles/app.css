@@ -1,0 +1,249 @@
+/* ─────────────────────────────────────────────────────────────────────────────
+   App shell layout
+───────────────────────────────────────────────────────────────────────────── */
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: var(--color-bg-primary);
+  overflow: hidden;
+}
+
+.app-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Top bar
+───────────────────────────────────────────────────────────────────────────── */
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 20px;
+  height: 52px;
+  border-bottom: 0.5px solid var(--color-border-tertiary);
+  background: var(--color-bg-primary);
+  flex-shrink: 0;
+  z-index: 10;
+}
+
+.topbar-logo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.logo-mark {
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  background: var(--color-text-primary);
+  color: var(--color-bg-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.logo-text {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-text-primary);
+  letter-spacing: -0.01em;
+}
+
+.logo-text-dim {
+  color: var(--color-text-secondary);
+  font-weight: 400;
+}
+
+/* Nav tabs */
+.nav-tabs {
+  display: flex;
+  gap: 2px;
+}
+
+.nav-tab {
+  padding: 5px 14px;
+  font-size: 13px;
+  border-radius: var(--radius-md);
+  border: none;
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  font-family: inherit;
+}
+
+.nav-tab:hover {
+  background: var(--color-bg-secondary);
+  color: var(--color-text-primary);
+}
+
+.nav-tab.active {
+  background: var(--color-bg-secondary);
+  color: var(--color-text-primary);
+  font-weight: 500;
+}
+
+/* Top bar right */
+.topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.health-indicator {
+  display: flex;
+  align-items: center;
+  cursor: default;
+}
+
+.health-icon {
+  opacity: 0.5;
+}
+.health-icon.ok {
+  color: var(--color-true-text);
+  opacity: 1;
+}
+.health-icon.error {
+  color: var(--color-false-text);
+  opacity: 1;
+}
+.health-icon.checking {
+  color: var(--color-text-tertiary);
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}
+
+.avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--color-bg-secondary);
+  border: 0.5px solid var(--color-border-tertiary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--color-text-secondary);
+  user-select: none;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Shared verdict colors
+───────────────────────────────────────────────────────────────────────────── */
+.verdict-true { background: var(--color-true-bg); color: var(--color-true-text); }
+.verdict-false { background: var(--color-false-bg); color: var(--color-false-text); }
+.verdict-mixed { background: var(--color-mixed-bg); color: var(--color-mixed-text); }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Verdict badge (small square icon)
+───────────────────────────────────────────────────────────────────────────── */
+.verdict-badge {
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Confidence pill
+───────────────────────────────────────────────────────────────────────────── */
+.conf-pill {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 99px;
+}
+.conf-high { background: var(--color-true-bg); color: var(--color-true-text); }
+.conf-mid  { background: var(--color-mixed-bg); color: var(--color-mixed-text); }
+.conf-low  { background: var(--color-false-bg); color: var(--color-false-text); }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Shared icon button
+───────────────────────────────────────────────────────────────────────────── */
+.icon-btn {
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-md);
+  border: 0.5px solid var(--color-border-tertiary);
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: var(--color-text-secondary);
+  transition: background 0.12s;
+}
+.icon-btn:hover {
+  background: var(--color-bg-secondary);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Empty / error states
+───────────────────────────────────────────────────────────────────────────── */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 48px 24px;
+  color: var(--color-text-tertiary);
+  text-align: center;
+}
+
+.empty-state-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: var(--color-bg-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-tertiary);
+}
+
+.empty-state p {
+  font-size: 13px;
+  line-height: 1.5;
+  max-width: 280px;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Skeleton / loading
+───────────────────────────────────────────────────────────────────────────── */
+.skeleton {
+  background: var(--color-bg-secondary);
+  border-radius: 4px;
+  animation: shimmer 1.4s ease-in-out infinite;
+}
+
+@keyframes shimmer {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Section headings
+───────────────────────────────────────────────────────────────────────────── */
+.section-heading {
+  font-size: 11px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--color-text-tertiary);
+  margin-bottom: 2px;
+}
