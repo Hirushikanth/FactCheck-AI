@@ -34,6 +34,35 @@ def test_create_session_creates_initial_run(temp_db) -> None:
     assert session["status"] == "running"
 
 
+def test_activity_events_are_persisted_with_factcheck_and_dialogue_turns(temp_db) -> None:
+    run_id = session_store.create_session("sess-events", "Original claim.", db_path=temp_db)
+    session_store.record_activity_event(
+        run_id,
+        "agent_progress",
+        {"agent": "extractor", "status": "completed", "message": "1 claim extracted."},
+        db_path=temp_db,
+    )
+    message_id = session_store.save_user_message(
+        "sess-events", "What does the evidence say?", db_path=temp_db
+    )
+    session_store.record_activity_event(
+        f"dialogue:{message_id}",
+        "agent_progress",
+        {"agent": "dialogue", "status": "completed", "message": "Response ready."},
+        db_path=temp_db,
+    )
+
+    session = session_store.get_session("sess-events", db_path=temp_db)
+
+    assert session is not None
+    assert session["runs"][0]["activity_events"] == [
+        {"type": "agent_progress", "data": {"agent": "extractor", "status": "completed", "message": "1 claim extracted."}}
+    ]
+    assert session["messages"][0]["activity_events"] == [
+        {"type": "agent_progress", "data": {"agent": "dialogue", "status": "completed", "message": "Response ready."}}
+    ]
+
+
 def test_dialogue_refactcheck_appends_run_preserves_original(temp_db) -> None:
     session_store.create_session("sess-2", "Original claim.", db_path=temp_db)
     run1_id = session_store.get_initial_run_id("sess-2", db_path=temp_db)

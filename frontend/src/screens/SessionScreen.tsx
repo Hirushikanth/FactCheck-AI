@@ -21,7 +21,7 @@ import { useSessionStream } from "../hooks/useSessionStream";
 import { ActivityTimeline } from "../components/ActivityTimeline";
 import { MessageBubble } from "../components/MessageBubble";
 import type { ChatMessage } from "../components/MessageBubble";
-import { createInitialActivityState } from "../activity/reducer";
+import { createInitialActivityState, reduceActivityEvent } from "../activity/reducer";
 import type { ActivityTimelineState } from "../activity/types";
 import { truncate } from "../lib/format";
 
@@ -32,6 +32,13 @@ const INITIAL_MESSAGES: ChatMessage[] = [
       "Hello! Submit a claim and I'll verify it using multiple sources. I'll extract the core assertion, search for evidence, and give you a structured verdict.",
   },
 ];
+
+function restoreActivity(events: Array<{ type: string; data: Record<string, unknown> }>) {
+  return events.reduce(
+    (timeline, event) => reduceActivityEvent(timeline, event),
+    createInitialActivityState(),
+  );
+}
 
 // ── Session screen ────────────────────────────────────────────────────────────
 export function SessionScreen() {
@@ -130,13 +137,19 @@ export function SessionScreen() {
         setActiveSession(detail);
 
         // Reconstruct chat from stored history
+        const initialRun = detail.runs[0];
         const msgs: ChatMessage[] = [
           {
             role: "system",
             content:
               "Hello! Submit a claim and I'll verify it using multiple sources.",
           },
-          { role: "user", content: detail.raw_input },
+          {
+            role: "user",
+            content: initialRun?.raw_input ?? detail.raw_input,
+            activityId: initialRun?.run_id,
+            activityKind: "pipeline",
+          },
         ];
 
         // Show the report if the session completed
@@ -146,11 +159,28 @@ export function SessionScreen() {
 
         // Append any dialogue turns that came after
         for (const m of detail.messages) {
-          msgs.push({ role: m.role, content: m.content });
+          msgs.push({
+            role: m.role,
+            content: m.content,
+            activityId: m.role === "user" ? `dialogue:${m.id}` : undefined,
+            activityKind: m.role === "user" ? "dialogue" : undefined,
+          });
         }
 
         setChatMessages(msgs);
-        setActivitySnapshots({});
+        setActivitySnapshots({
+          ...(initialRun
+            ? { [initialRun.run_id]: restoreActivity(initialRun.activity_events) }
+            : {}),
+          ...Object.fromEntries(
+            detail.messages
+              .filter((message) => message.role === "user")
+              .map((message) => [
+                `dialogue:${message.id}`,
+                restoreActivity(message.activity_events),
+              ]),
+          ),
+        });
         setActiveActivityId(null);
       } catch {
         // ignore — SSE will catch up on reconnect

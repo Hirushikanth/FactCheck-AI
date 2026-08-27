@@ -160,7 +160,7 @@ async def test_trigger_new_factcheck_appends_run_preserves_original(temp_db, mon
         "run_factcheck_with_events",
         fake_run_factcheck_with_events,
     )
-    monkeypatch.setattr(dialogue_service, "create_session_hub", lambda session_id, run_id=None: None)
+    monkeypatch.setattr(dialogue_service, "create_session_hub", lambda session_id, run_id=None, **kwargs: None)
 
     await dialogue_service._trigger_new_factcheck("sess-refact", "New claim.")
 
@@ -191,7 +191,7 @@ async def test_trigger_new_factcheck_calls_try_acquire(temp_db, monkeypatch) -> 
         "run_factcheck_with_events",
         fake_run_factcheck_with_events,
     )
-    monkeypatch.setattr(dialogue_service, "create_session_hub", lambda session_id, run_id=None: None)
+    monkeypatch.setattr(dialogue_service, "create_session_hub", lambda session_id, run_id=None, **kwargs: None)
 
     with patch.object(dialogue_service, "try_acquire_session", return_value=True) as store_acquire:
         await dialogue_service._trigger_new_factcheck("sess-acquire", "New claim.")
@@ -223,7 +223,7 @@ async def test_trigger_new_factcheck_skips_acquire_when_lock_held(
         "run_factcheck_with_events",
         fake_run_factcheck_with_events,
     )
-    monkeypatch.setattr(dialogue_service, "create_session_hub", lambda session_id, run_id=None: None)
+    monkeypatch.setattr(dialogue_service, "create_session_hub", lambda session_id, run_id=None, **kwargs: None)
 
     with patch.object(dialogue_service, "try_acquire_session") as store_acquire:
         await dialogue_service._trigger_new_factcheck(
@@ -277,7 +277,7 @@ async def test_run_dialogue_turn_triggers_factcheck_with_lock_held(
         "run_factcheck_with_events",
         fake_run_factcheck_with_events,
     )
-    monkeypatch.setattr(dialogue_service, "create_session_hub", lambda session_id, run_id=None: None)
+    monkeypatch.setattr(dialogue_service, "create_session_hub", lambda session_id, run_id=None, **kwargs: None)
     monkeypatch.setattr(dialogue_service, "persist_dialogue_state", lambda *args, **kwargs: None)
 
     await dialogue_service.run_dialogue_turn("sess-sync-fc", "Check: The moon is cheese.")
@@ -333,7 +333,7 @@ async def test_run_dialogue_turn_background_triggers_factcheck_when_running(
         "run_factcheck_with_events",
         fake_run_factcheck_with_events,
     )
-    monkeypatch.setattr(dialogue_service, "create_session_hub", lambda session_id, run_id=None: None)
+    monkeypatch.setattr(dialogue_service, "create_session_hub", lambda session_id, run_id=None, **kwargs: None)
     monkeypatch.setattr(dialogue_service, "persist_dialogue_state", lambda *args, **kwargs: None)
 
     with patch.object(dialogue_service, "try_acquire_session") as store_acquire:

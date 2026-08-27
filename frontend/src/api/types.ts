@@ -30,12 +30,15 @@ export interface FactCheckRunSummary {
   status: string;
   triggered_by: RunTrigger;
   created_at: number;
+  activity_events: Array<{ type: string; data: Record<string, unknown> }>;
 }
 
 export interface DialogueMessage {
+  id: number;
   role: "user" | "assistant";
   content: string;
   created_at: number;
+  activity_events: Array<{ type: string; data: Record<string, unknown> }>;
 }
 
 export interface SessionSummary {

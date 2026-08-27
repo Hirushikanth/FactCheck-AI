@@ -7,7 +7,7 @@ import sqlite3
 import time
 import uuid
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from factcheck.config import BACKEND_DIR
 from factcheck.dialogue.schemas import ConversationSummary, DialogueOutput, DialogueTurn
@@ -245,7 +245,61 @@ def ensure_dialogue_tables(db_path: Path | str | None = None) -> None:
             "CREATE INDEX IF NOT EXISTS idx_dialogue_history_session "
             "ON dialogue_history(session_id)"
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS activity_event_log (
+                run_key      TEXT NOT NULL,
+                sequence     INTEGER NOT NULL,
+                event_type   TEXT NOT NULL,
+                payload_json TEXT NOT NULL,
+                PRIMARY KEY (run_key, sequence)
+            )
+            """
+        )
         _migrate_legacy_sessions_to_runs(conn)
+
+
+def _activity_events_for_run(
+    conn: sqlite3.Connection, run_key: str
+) -> list[dict[str, Any]]:
+    rows = conn.execute(
+        """
+        SELECT event_type, payload_json
+        FROM activity_event_log
+        WHERE run_key = ?
+        ORDER BY sequence ASC
+        """,
+        (run_key,),
+    ).fetchall()
+    return [
+        {"type": row["event_type"], "data": json.loads(row["payload_json"])}
+        for row in rows
+    ]
+
+
+def record_activity_event(
+    run_key: str,
+    event_type: str,
+    data: dict[str, Any],
+    db_path: Path | str | None = None,
+) -> None:
+    """Durably append a sanitized SSE event for a visible activity run."""
+    resolved = _resolve_db_path(db_path)
+    ensure_dialogue_tables(resolved)
+    with _get_connection(resolved) as conn:
+        row = conn.execute(
+            "SELECT COALESCE(MAX(sequence), 0) + 1 AS next_sequence "
+            "FROM activity_event_log WHERE run_key = ?",
+            (run_key,),
+        ).fetchone()
+        conn.execute(
+            """
+            INSERT INTO activity_event_log
+              (run_key, sequence, event_type, payload_json)
+            VALUES (?, ?, ?, ?)
+            """,
+            (run_key, int(row["next_sequence"]), event_type, json.dumps(data)),
+        )
 
 
 def create_session(
@@ -541,7 +595,7 @@ def get_session(
 
         message_rows = conn.execute(
             """
-            SELECT role, content, timestamp AS created_at
+            SELECT id, role, content, timestamp AS created_at
             FROM dialogue_history
             WHERE session_id = ?
             ORDER BY timestamp ASC
@@ -558,8 +612,21 @@ def get_session(
         session["claim_results"] = json.loads(session.pop("claim_results_json"))
     session.pop("claim_results_json", None)
     session["active_run_id"] = active_run_id
-    session["runs"] = [dict(r) for r in run_rows]
-    session["messages"] = [dict(message) for message in message_rows]
+    session["runs"] = [
+        {**dict(run), "activity_events": _activity_events_for_run(conn, run["run_id"])}
+        for run in run_rows
+    ]
+    session["messages"] = [
+        {
+            **dict(message),
+            "activity_events": _activity_events_for_run(
+                conn, f"dialogue:{message['id']}"
+            )
+            if message["role"] == "user"
+            else [],
+        }
+        for message in message_rows
+    ]
     return session
 
 

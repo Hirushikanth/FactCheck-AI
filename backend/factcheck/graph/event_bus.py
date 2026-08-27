@@ -51,6 +51,7 @@ class SessionStreamHub:
     thinking_max_chars: int = THINKING_MAX_CHARS
     thinking_chars: int = 0
     thinking_truncated: bool = False
+    persist_events: bool = False
 
 
 @dataclass(frozen=True)
@@ -118,6 +119,7 @@ def create_session_hub(
     thinking_enabled: bool = False,
     thinking_supported: bool = False,
     thinking_max_chars: int = THINKING_MAX_CHARS,
+    persist_events: bool = False,
 ) -> SessionStreamHub:
     """Create a hub for *session_id*. Call before starting a background pipeline task."""
     existing = _hubs.get(session_id)
@@ -135,6 +137,7 @@ def create_session_hub(
         thinking_enabled=bool(thinking_enabled),
         thinking_supported=bool(thinking_supported),
         thinking_max_chars=max(1, int(thinking_max_chars)),
+        persist_events=persist_events,
     )
     _hubs[session_id] = hub
     return hub
@@ -157,6 +160,15 @@ async def push_event(session_id: str, event: str, data: dict[str, Any]) -> None:
 
     stored = StoredEvent(event=event, data=data)
     hub.buffer.append(stored)
+    if hub.persist_events and hub.run_id:
+        try:
+            from factcheck.db.session_store import record_activity_event
+
+            await asyncio.to_thread(record_activity_event, hub.run_id, event, data)
+        except Exception:
+            logger.exception(
+                "[event_bus] Unable to persist activity event for run %s", hub.run_id
+            )
     for queue in list(hub.subscribers):
         await queue.put(stored)
 

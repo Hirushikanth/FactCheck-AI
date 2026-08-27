@@ -39,6 +39,7 @@ class FactCheckRunSummary(BaseModel):
     status: str
     triggered_by: str
     created_at: float
+    activity_events: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class SessionDetail(BaseModel):
