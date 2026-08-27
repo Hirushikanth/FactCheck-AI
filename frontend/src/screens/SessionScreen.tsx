@@ -64,7 +64,7 @@ export function SessionScreen() {
   });
 
   // SSE for active session
-  const { state: streamState, setThinkingEnabled } = useSessionStream(activeSessionId, {
+  const { state: streamState, setThinkingEnabled, connectStream } = useSessionStream(activeSessionId, {
     onReportReady: (report) => {
       appendReportMessage(report);
     },
@@ -191,12 +191,13 @@ export function SessionScreen() {
     setIsBusy(true);
     try {
       await postMessage(activeSessionId, text);
+      connectStream(activeSessionId);
       queryClient.invalidateQueries({ queryKey: ["sessions"] });
     } catch (err) {
       setIsBusy(false);
       setStatusError(err instanceof Error ? err.message : "Failed to send message");
     }
-  }, [inputValue, isBusy, activeSessionId, setActiveSessionId, queryClient]);
+  }, [inputValue, isBusy, activeSessionId, setActiveSessionId, queryClient, connectStream]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
