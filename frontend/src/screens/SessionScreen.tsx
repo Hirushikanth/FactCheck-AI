@@ -17,13 +17,11 @@ import {
 import { createSession, getSession, listSessions, postMessage } from "../api/client";
 import type { SessionSummary } from "../api/types";
 import { useApp } from "../app-context";
-import { useSessionStream, buildPipelineSteps } from "../hooks/useSessionStream";
+import { useSessionStream } from "../hooks/useSessionStream";
 import { ActivityTimeline } from "../components/ActivityTimeline";
 import { MessageBubble } from "../components/MessageBubble";
 import type { ChatMessage } from "../components/MessageBubble";
 import { truncate } from "../lib/format";
-
-const INTERIM_VERIFYING_PREFIX = "Verifying that claim now";
 
 const INITIAL_MESSAGES: ChatMessage[] = [
   {
@@ -54,12 +52,7 @@ export function SessionScreen() {
       const lastAssistant = [...prev].reverse().find((m) => m.role === "assistant");
       if (lastAssistant?.content === report) return prev;
 
-      // Strip any interim "Verifying…" assistant bubble
-      const withoutInterim = prev.filter(
-        (m) => !(m.role === "assistant" && m.content.startsWith(INTERIM_VERIFYING_PREFIX))
-      );
-
-      return [...withoutInterim, { role: "assistant", content: report, markdown: true }];
+      return [...prev, { role: "assistant", content: report, markdown: true }];
     });
   }, []);
 
@@ -115,14 +108,7 @@ export function SessionScreen() {
     },
   });
 
-  const pipelineSteps = buildPipelineSteps(
-    streamState.completedAgents,
-    streamState.activeAgents
-  );
-
-  const showActivity =
-    activeSessionId !== null &&
-    pipelineSteps.some((s) => s.status !== "pending");
+  const showActivity = activeSessionId !== null;
 
   // Scroll chat to bottom on new messages
   useEffect(() => {
@@ -192,15 +178,6 @@ export function SessionScreen() {
         setActiveSessionId(result.session_id);
         queryClient.invalidateQueries({ queryKey: ["sessions"] });
 
-        // Interim message — will be replaced by the actual report via onReportReady
-        setChatMessages((prev) => [
-          ...prev,
-          {
-            role: "assistant",
-            content:
-              `${INTERIM_VERIFYING_PREFIX} — running the pipeline across multiple sources. Results in a moment.`,
-          },
-        ]);
       } catch (err) {
         setIsBusy(false);
         setStatusError(err instanceof Error ? err.message : "Failed to create session");

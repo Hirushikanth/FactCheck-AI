@@ -231,7 +231,10 @@ export function ActivityTimeline({
   return (
     <section className="activity-timeline" aria-labelledby="activity-heading">
       <div className="activity-header">
-        <h2 id="activity-heading">Activity</h2>
+        <div>
+          <h2 id="activity-heading">Activity</h2>
+          <p className="activity-intro">Verifying that claim now — running the pipeline across multiple sources.</p>
+        </div>
         <button
           type="button"
           className="activity-collapse-button"
