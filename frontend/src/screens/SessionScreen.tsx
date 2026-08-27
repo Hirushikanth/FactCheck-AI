@@ -18,7 +18,7 @@ import { createSession, getSession, listSessions, postMessage } from "../api/cli
 import type { SessionSummary } from "../api/types";
 import { useApp } from "../app-context";
 import { useSessionStream, buildPipelineSteps } from "../hooks/useSessionStream";
-import { PipelineStepper } from "../components/PipelineStepper";
+import { ActivityTimeline } from "../components/ActivityTimeline";
 import { MessageBubble } from "../components/MessageBubble";
 import type { ChatMessage } from "../components/MessageBubble";
 import { truncate } from "../lib/format";
@@ -71,7 +71,7 @@ export function SessionScreen() {
   });
 
   // SSE for active session
-  const { state: streamState } = useSessionStream(activeSessionId, {
+  const { state: streamState, setThinkingEnabled } = useSessionStream(activeSessionId, {
     onReportReady: (report) => {
       appendReportMessage(report);
     },
@@ -120,14 +120,14 @@ export function SessionScreen() {
     streamState.activeAgents
   );
 
-  const showStepper =
+  const showActivity =
     activeSessionId !== null &&
     pipelineSteps.some((s) => s.status !== "pending");
 
   // Scroll chat to bottom on new messages
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [chatMessages, showStepper]);
+  }, [chatMessages, showActivity]);
 
   const handleSelectSession = useCallback(
     async (session: SessionSummary) => {
@@ -261,7 +261,8 @@ export function SessionScreen() {
           .filter((s) => s.session_id !== activeSessionId)
           .slice(0, 8)
           .map((session) => (
-            <div
+            <button
+              type="button"
               key={session.session_id}
               className={`sidebar-item${session.session_id === activeSessionId ? " active" : ""}`}
               onClick={() => handleSelectSession(session)}
@@ -269,18 +270,19 @@ export function SessionScreen() {
               <IconMessageCircle size={15} />
               <span className="item-text">{truncate(session.raw_input, 28)}</span>
               <StatusBadge status={session.status} />
-            </div>
+            </button>
           ))}
 
         <div style={{ flex: 1 }} />
-        <div
+        <button
+          type="button"
           className="sidebar-item"
           onClick={handleNewSession}
           style={{ marginTop: "auto", cursor: "pointer" }}
         >
           <IconPlus size={15} />
           <span className="item-text">New session</span>
-        </div>
+        </button>
       </aside>
 
       {/* ── Chat main ── */}
@@ -335,8 +337,14 @@ export function SessionScreen() {
           <div ref={messagesEndRef} />
         </div>
 
-        {/* Pipeline stepper */}
-        {showStepper && <PipelineStepper steps={pipelineSteps} />}
+        {/* Agent-first activity timeline */}
+        {showActivity && (
+          <ActivityTimeline
+            timeline={streamState.activity}
+            thinkingEnabled={streamState.thinkingEnabled}
+            onThinkingEnabledChange={setThinkingEnabled}
+          />
+        )}
 
         {/* Input */}
         <div className="chat-input-area">

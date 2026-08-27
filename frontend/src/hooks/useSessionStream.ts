@@ -1,5 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getStreamUrl, getSession } from "../api/client";
+import {
+  createInitialActivityState,
+  reduceActivityEvent,
+  type ActivityEvent,
+} from "../activity/reducer";
+import type { PipelineAgent } from "../activity/types";
 import type {
   SseAgentStart,
   SseClaimFound,
@@ -11,7 +17,7 @@ import type {
   SseVerdictReady,
 } from "../api/types";
 
-export type PipelineAgent = "extractor" | "verifier" | "reporter" | "dialogue";
+export type { PipelineAgent } from "../activity/types";
 export type PipelineStep = {
   agent: PipelineAgent;
   status: "done" | "active" | "pending";
@@ -36,6 +42,9 @@ export interface StreamState {
   pipelineDone: boolean;
   // Refreshed session after pipeline_done
   sessionStatus: "running" | "done" | "error" | null;
+  activity: ReturnType<typeof createInitialActivityState>;
+  thinkingEnabled: boolean;
+  thinkingSupported: boolean;
 }
 
 interface UseSessionStreamOptions {
@@ -51,7 +60,8 @@ const AGENT_ORDER: PipelineAgent[] = [
   "dialogue",
 ];
 
-const INITIAL_STATE: StreamState = {
+function createInitialState(): StreamState {
+  return {
   streamStatus: "idle",
   activeAgents: new Set(),
   completedAgents: new Set(),
@@ -62,13 +72,17 @@ const INITIAL_STATE: StreamState = {
   pipelineError: null,
   pipelineDone: false,
   sessionStatus: null,
-};
+    activity: createInitialActivityState(),
+    thinkingEnabled: false,
+    thinkingSupported: false,
+  };
+}
 
 export function useSessionStream(
   sessionId: string | null,
   options: UseSessionStreamOptions = {}
 ) {
-  const [state, setState] = useState<StreamState>(INITIAL_STATE);
+  const [state, setState] = useState<StreamState>(createInitialState);
 
   // Refs to avoid stale closures in async callbacks
   const abortRef = useRef<AbortController | null>(null);
@@ -79,10 +93,14 @@ export function useSessionStream(
   optionsRef.current = options;
 
   const reset = useCallback(() => {
-    setState(INITIAL_STATE);
+    setState(createInitialState());
     reconnectCountRef.current = 0;
     orphanedRetryUsedRef.current = false;
     sessionStatusRef.current = null;
+  }, []);
+
+  const setThinkingEnabled = useCallback((enabled: boolean) => {
+    setState((current) => ({ ...current, thinkingEnabled: enabled }));
   }, []);
 
   const abort = useCallback(() => {
@@ -97,6 +115,25 @@ export function useSessionStream(
 
   const handleEvent = useCallback(
     async (eventName: string, data: Record<string, unknown>, sessionId: string) => {
+      const activityEvent: ActivityEvent = { type: eventName, data };
+      const activityEventNames = new Set([
+        "agent_start",
+        "agent_progress",
+        "claim_found",
+        "search_progress",
+        "verdict_ready",
+        "thinking_chunk",
+        "pipeline_done",
+        "pipeline_error",
+      ]);
+      if (activityEventNames.has(eventName)) {
+        setState((s) => ({
+          ...s,
+          activity: reduceActivityEvent(s.activity, activityEvent),
+          thinkingSupported: s.thinkingSupported || eventName === "thinking_chunk",
+        }));
+      }
+
       if (eventName === "stream_open") {
         const payload = data as unknown as SseStreamOpen;
         setState((s) => ({
@@ -167,7 +204,7 @@ export function useSessionStream(
         setState((s) => ({
           ...s,
           streamStatus: "error",
-          pipelineError: payload.error,
+          pipelineError: payload.error ?? payload.reason ?? "Pipeline failed.",
           sessionStatus: "error",
         }));
         sessionStatusRef.current = "error";
@@ -420,7 +457,7 @@ export function useSessionStream(
     };
   }, [sessionId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  return { state, connectStream, abort, reset };
+  return { state, connectStream, abort, reset, setThinkingEnabled };
 }
 
 export function buildPipelineSteps(
