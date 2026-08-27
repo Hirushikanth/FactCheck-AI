@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import {
   IconAlertTriangle,
   IconBrain,
@@ -22,6 +22,7 @@ import { AGENT_ORDER } from "../activity/types";
 
 interface ActivityTimelineProps {
   timeline: ActivityTimelineState;
+  mode?: "pipeline" | "dialogue";
   thinkingEnabled?: boolean;
   onThinkingEnabledChange?: (enabled: boolean) => void;
 }
@@ -203,17 +204,29 @@ function AgentRow({
 
 export function ActivityTimeline({
   timeline,
+  mode = "pipeline",
   thinkingEnabled = false,
   onThinkingEnabledChange,
 }: ActivityTimelineProps) {
   const [expanded, setExpanded] = useState(timeline.expanded);
   const [openThinking, setOpenThinking] = useState<Set<string>>(new Set());
+  const generatedId = useId();
+  const contentId = `activity-timeline-${generatedId}`;
+  const headingId = `activity-heading-${generatedId}`;
   const hasThinking = timeline.thinkingSupported && AGENT_ORDER.some((agent) =>
     timeline.agents[agent].actions.some((action) => action.thinking) || timeline.agents[agent].claims.some((claim) => claim.thinking),
   );
   const initialPipelineComplete = ["extractor", "verifier", "reporter"].every(
     (agent) => timeline.agents[agent as PipelineAgent].status === "completed",
   );
+  const dialogueComplete = timeline.agents.dialogue.status === "completed";
+  const intro = mode === "dialogue"
+    ? dialogueComplete
+      ? "Follow-up complete — the source-grounded response is ready."
+      : "Preparing a source-grounded follow-up response."
+    : initialPipelineComplete
+      ? "Fact-check complete — evidence and report are ready."
+      : "Verifying that claim now — running the pipeline across multiple sources.";
 
   const toggleThinking = (id: string) => {
     setOpenThinking((previous) => {
@@ -232,17 +245,17 @@ export function ActivityTimeline({
   };
 
   return (
-    <section className="activity-timeline" aria-labelledby="activity-heading">
+    <section className="activity-timeline" aria-labelledby={headingId}>
       <div className="activity-header">
         <div>
-          <h2 id="activity-heading">Activity</h2>
-          <p className="activity-intro">{initialPipelineComplete ? "Fact-check complete — evidence and report are ready." : "Verifying that claim now — running the pipeline across multiple sources."}</p>
+          <h2 id={headingId}>Activity</h2>
+          <p className="activity-intro">{intro}</p>
         </div>
         <button
           type="button"
           className="activity-collapse-button"
           aria-expanded={expanded}
-          aria-controls="activity-timeline-content"
+          aria-controls={contentId}
           onClick={() => setExpanded((value) => !value)}
         >
           {expanded ? "Hide activity" : "Show activity"}
@@ -250,8 +263,8 @@ export function ActivityTimeline({
         </button>
       </div>
       {expanded && (
-        <div id="activity-timeline-content" className="activity-content">
-          <ol className="activity-agent-list" aria-label="Fact-check pipeline">
+        <div id={contentId} className="activity-content">
+          <ol className="activity-agent-list" aria-label={mode === "dialogue" ? "Dialogue activity" : "Fact-check pipeline"}>
             {AGENT_ORDER.filter((agent) => timeline.agents[agent].status !== "pending").map((agent) => (
               <AgentRow key={agent} agent={timeline.agents[agent]} thinkingEnabled={thinkingEnabled && hasThinking} openThinking={openThinking} onThinkingToggle={toggleThinking} />
             ))}

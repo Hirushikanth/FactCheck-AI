@@ -6,6 +6,9 @@ export type ChatMessage = {
   content: string;
   /** When true the content is rendered as markdown (final_report). */
   markdown?: boolean;
+  /** Associates a submitted message with the activity card for that run. */
+  activityId?: string;
+  activityKind?: "pipeline" | "dialogue";
 };
 
 interface Props {

@@ -21,6 +21,8 @@ import { useSessionStream } from "../hooks/useSessionStream";
 import { ActivityTimeline } from "../components/ActivityTimeline";
 import { MessageBubble } from "../components/MessageBubble";
 import type { ChatMessage } from "../components/MessageBubble";
+import { createInitialActivityState } from "../activity/reducer";
+import type { ActivityTimelineState } from "../activity/types";
 import { truncate } from "../lib/format";
 
 const INITIAL_MESSAGES: ChatMessage[] = [
@@ -42,15 +44,18 @@ export function SessionScreen() {
   const [inputValue, setInputValue] = useState("");
   const [isBusy, setIsBusy] = useState(false);
   const [statusError, setStatusError] = useState<string | null>(null);
+  const [activitySnapshots, setActivitySnapshots] = useState<Record<string, ActivityTimelineState>>({});
+  const [activeActivityId, setActiveActivityId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Helper: append (or replace) the final report as a markdown bot bubble.
-  // Removes the interim "Verifying…" bubble and deduplicates.
+  // Add the final report once; follow-up dialogue may appear after it.
   const appendReportMessage = useCallback((report: string) => {
     setChatMessages((prev) => {
-      // Skip if this exact report is already the last assistant message
-      const lastAssistant = [...prev].reverse().find((m) => m.role === "assistant");
-      if (lastAssistant?.content === report) return prev;
+      // A dialogue response may now follow the report, so deduplicate across the
+      // whole conversation rather than only looking at the final assistant turn.
+      if (prev.some((message) => message.markdown && message.content === report)) {
+        return prev;
+      }
 
       return [...prev, { role: "assistant", content: report, markdown: true }];
     });
@@ -64,7 +69,7 @@ export function SessionScreen() {
   });
 
   // SSE for active session
-  const { state: streamState, setThinkingEnabled, connectStream } = useSessionStream(activeSessionId, {
+  const { state: streamState, setThinkingEnabled, connectStream, startNewActivity } = useSessionStream(activeSessionId, {
     onReportReady: (report) => {
       appendReportMessage(report);
     },
@@ -108,14 +113,10 @@ export function SessionScreen() {
     },
   });
 
-  const showActivity = activeSessionId !== null;
-  const dialogueHasRun = streamState.activity.agents.dialogue.status !== "pending";
-  const hasReportMessage = chatMessages.some((message) => message.markdown);
-
   // Scroll chat to bottom on new messages
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [chatMessages, showActivity]);
+  }, [chatMessages, activeActivityId, streamState.activity]);
 
   const handleSelectSession = useCallback(
     async (session: SessionSummary) => {
@@ -149,6 +150,8 @@ export function SessionScreen() {
         }
 
         setChatMessages(msgs);
+        setActivitySnapshots({});
+        setActiveActivityId(null);
       } catch {
         // ignore — SSE will catch up on reconnect
       }
@@ -163,6 +166,8 @@ export function SessionScreen() {
     setStatusError(null);
     setInputValue("");
     setChatMessages(INITIAL_MESSAGES);
+    setActivitySnapshots({});
+    setActiveActivityId(null);
   }, [setActiveSessionId, setActiveSession]);
 
   const handleSend = useCallback(async () => {
@@ -171,7 +176,20 @@ export function SessionScreen() {
     setInputValue("");
     setStatusError(null);
 
-    setChatMessages((prev) => [...prev, { role: "user", content: text }]);
+    const activityId = crypto.randomUUID();
+    const activityKind = activeSessionId ? "dialogue" : "pipeline";
+    if (activeActivityId) {
+      setActivitySnapshots((previous) => ({
+        ...previous,
+        [activeActivityId]: streamState.activity,
+      }));
+    }
+    setActiveActivityId(activityId);
+    startNewActivity();
+    setChatMessages((prev) => [
+      ...prev,
+      { role: "user", content: text, activityId, activityKind },
+    ]);
 
     if (!activeSessionId) {
       setIsBusy(true);
@@ -197,7 +215,7 @@ export function SessionScreen() {
       setIsBusy(false);
       setStatusError(err instanceof Error ? err.message : "Failed to send message");
     }
-  }, [inputValue, isBusy, activeSessionId, setActiveSessionId, queryClient, connectStream]);
+  }, [inputValue, isBusy, activeSessionId, activeActivityId, streamState.activity, setActiveSessionId, queryClient, connectStream, startNewActivity]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -313,15 +331,17 @@ export function SessionScreen() {
         <div className="messages">
           {chatMessages.map((msg, i) => (
             <div key={i}>
-              {showActivity && !dialogueHasRun && msg.markdown && !chatMessages.slice(0, i).some((message) => message.markdown) && (
-                <ActivityBubble timeline={streamState.activity} thinkingEnabled={streamState.thinkingEnabled} onThinkingEnabledChange={setThinkingEnabled} />
-              )}
               <MessageBubble message={msg} />
+              {msg.role === "user" && msg.activityId && (
+                <ActivityBubble
+                  mode={msg.activityKind}
+                  timeline={activitySnapshots[msg.activityId] ?? (msg.activityId === activeActivityId ? streamState.activity : createInitialActivityState())}
+                  thinkingEnabled={msg.activityId === activeActivityId && streamState.thinkingEnabled}
+                  onThinkingEnabledChange={msg.activityId === activeActivityId ? setThinkingEnabled : undefined}
+                />
+              )}
             </div>
           ))}
-          {showActivity && (!hasReportMessage || dialogueHasRun) && (
-            <ActivityBubble timeline={streamState.activity} thinkingEnabled={streamState.thinkingEnabled} onThinkingEnabledChange={setThinkingEnabled} />
-          )}
           <div ref={messagesEndRef} />
         </div>
 
@@ -365,11 +385,12 @@ export function SessionScreen() {
 }
 
 function ActivityBubble({
+  mode,
   timeline,
   thinkingEnabled,
   onThinkingEnabledChange,
 }: React.ComponentProps<typeof ActivityTimeline>) {
-  return <div className="activity-message-bubble"><ActivityTimeline timeline={timeline} thinkingEnabled={thinkingEnabled} onThinkingEnabledChange={onThinkingEnabledChange} /></div>;
+  return <div className="activity-message-bubble"><ActivityTimeline mode={mode} timeline={timeline} thinkingEnabled={thinkingEnabled} onThinkingEnabledChange={onThinkingEnabledChange} /></div>;
 }
 
 // Small status badge for sidebar

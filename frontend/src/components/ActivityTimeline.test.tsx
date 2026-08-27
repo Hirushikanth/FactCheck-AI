@@ -76,4 +76,23 @@ describe("ActivityTimeline", () => {
     render(<ActivityTimeline timeline={timeline} thinkingEnabled />);
     expect(screen.queryByText(/model-emitted thinking/i)).not.toBeInTheDocument();
   });
+
+  it("uses dialogue-specific copy and only shows the dialogue agent", () => {
+    let timeline = createInitialActivityState();
+    timeline = reduceActivityEvent(timeline, {
+      type: "agent_progress",
+      data: {
+        agent: "dialogue",
+        stage: "response",
+        status: "completed",
+        message: "Response ready.",
+      },
+    }, 100);
+
+    render(<ActivityTimeline timeline={timeline} mode="dialogue" />);
+
+    expect(screen.getByText("Follow-up complete — the source-grounded response is ready.")).toBeInTheDocument();
+    expect(screen.getByText("Dialogue")).toBeInTheDocument();
+    expect(screen.queryByText("Extractor")).not.toBeInTheDocument();
+  });
 });

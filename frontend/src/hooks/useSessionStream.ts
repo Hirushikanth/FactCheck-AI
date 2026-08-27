@@ -103,6 +103,29 @@ export function useSessionStream(
     setState((current) => ({ ...current, thinkingEnabled: enabled }));
   }, []);
 
+  // A follow-up stays in the same session, but is a distinct run in the chat.
+  // Keep the SSE connection state while giving that run a fresh activity timeline.
+  const startNewActivity = useCallback(() => {
+    setState((current) => ({
+      ...current,
+      activeAgents: new Set(),
+      completedAgents: new Set(),
+      claimsFound: [],
+      verdicts: [],
+      finalReport: null,
+      dialogueReplies: [],
+      pipelineError: null,
+      pipelineDone: false,
+      sessionStatus: "running",
+      activity: createInitialActivityState(),
+      thinkingEnabled: false,
+      thinkingSupported: false,
+    }));
+    reconnectCountRef.current = 0;
+    orphanedRetryUsedRef.current = false;
+    sessionStatusRef.current = "running";
+  }, []);
+
   const abort = useCallback(() => {
     if (abortRef.current) {
       abortRef.current.abort();
@@ -457,7 +480,7 @@ export function useSessionStream(
     };
   }, [sessionId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  return { state, connectStream, abort, reset, setThinkingEnabled };
+  return { state, connectStream, abort, reset, startNewActivity, setThinkingEnabled };
 }
 
 export function buildPipelineSteps(
