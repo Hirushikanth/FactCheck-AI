@@ -109,6 +109,8 @@ export function SessionScreen() {
   });
 
   const showActivity = activeSessionId !== null;
+  const dialogueHasRun = streamState.activity.agents.dialogue.status !== "pending";
+  const hasReportMessage = chatMessages.some((message) => message.markdown);
 
   // Scroll chat to bottom on new messages
   useEffect(() => {
@@ -309,16 +311,15 @@ export function SessionScreen() {
         {/* Messages */}
         <div className="messages">
           {chatMessages.map((msg, i) => (
-            <MessageBubble key={i} message={msg} />
-          ))}
-          {showActivity && (
-            <div className="activity-message-bubble">
-              <ActivityTimeline
-                timeline={streamState.activity}
-                thinkingEnabled={streamState.thinkingEnabled}
-                onThinkingEnabledChange={setThinkingEnabled}
-              />
+            <div key={i}>
+              {showActivity && !dialogueHasRun && msg.markdown && !chatMessages.slice(0, i).some((message) => message.markdown) && (
+                <ActivityBubble timeline={streamState.activity} thinkingEnabled={streamState.thinkingEnabled} onThinkingEnabledChange={setThinkingEnabled} />
+              )}
+              <MessageBubble message={msg} />
             </div>
+          ))}
+          {showActivity && (!hasReportMessage || dialogueHasRun) && (
+            <ActivityBubble timeline={streamState.activity} thinkingEnabled={streamState.thinkingEnabled} onThinkingEnabledChange={setThinkingEnabled} />
           )}
           <div ref={messagesEndRef} />
         </div>
@@ -360,6 +361,14 @@ export function SessionScreen() {
       </div>
     </div>
   );
+}
+
+function ActivityBubble({
+  timeline,
+  thinkingEnabled,
+  onThinkingEnabledChange,
+}: React.ComponentProps<typeof ActivityTimeline>) {
+  return <div className="activity-message-bubble"><ActivityTimeline timeline={timeline} thinkingEnabled={thinkingEnabled} onThinkingEnabledChange={onThinkingEnabledChange} /></div>;
 }
 
 // Small status badge for sidebar

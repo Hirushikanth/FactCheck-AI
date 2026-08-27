@@ -211,6 +211,9 @@ export function ActivityTimeline({
   const hasThinking = timeline.thinkingSupported && AGENT_ORDER.some((agent) =>
     timeline.agents[agent].actions.some((action) => action.thinking) || timeline.agents[agent].claims.some((claim) => claim.thinking),
   );
+  const initialPipelineComplete = ["extractor", "verifier", "reporter"].every(
+    (agent) => timeline.agents[agent as PipelineAgent].status === "completed",
+  );
 
   const toggleThinking = (id: string) => {
     setOpenThinking((previous) => {
@@ -233,7 +236,7 @@ export function ActivityTimeline({
       <div className="activity-header">
         <div>
           <h2 id="activity-heading">Activity</h2>
-          <p className="activity-intro">Verifying that claim now — running the pipeline across multiple sources.</p>
+          <p className="activity-intro">{initialPipelineComplete ? "Fact-check complete — evidence and report are ready." : "Verifying that claim now — running the pipeline across multiple sources."}</p>
         </div>
         <button
           type="button"
