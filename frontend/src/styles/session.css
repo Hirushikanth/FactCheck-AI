@@ -165,6 +165,16 @@
   min-height: 0;
 }
 
+.chat-turn {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Separate a completed user thought from the response that follows it. */
+.chat-turn-user + .chat-turn:not(.chat-turn-user) {
+  margin-top: 10px;
+}
+
 .msg-row {
   display: flex;
   gap: 10px;
@@ -230,13 +240,13 @@
   overflow-wrap: break-word;
 }
 
-.report-markdown {
+.message-markdown {
   font-size: 13px;
   line-height: 1.65;
   color: var(--color-text-primary);
 }
 
-.report-markdown h1 {
+.message-markdown h1 {
   font-size: 15px;
   font-weight: 600;
   margin: 0 0 6px;
@@ -244,55 +254,83 @@
   border-bottom: 0.5px solid var(--color-border-tertiary);
 }
 
-.report-markdown h2 {
+.message-markdown h2 {
   font-size: 13.5px;
   font-weight: 600;
   margin: 12px 0 4px;
 }
 
-.report-markdown h3 {
+.message-markdown h3 {
   font-size: 13px;
   font-weight: 500;
   margin: 10px 0 3px;
   color: var(--color-text-secondary);
 }
 
-.report-markdown p {
+.message-markdown p {
   margin: 4px 0;
 }
 
-.report-markdown ul,
-.report-markdown ol {
+.message-markdown ul,
+.message-markdown ol {
   padding-left: 18px;
   margin: 4px 0;
 }
 
-.report-markdown li {
+.message-markdown li {
   margin: 2px 0;
 }
 
-.report-markdown strong {
+.message-markdown strong {
   font-weight: 600;
   color: var(--color-text-primary);
 }
 
-.report-markdown a {
+.message-markdown a {
   color: var(--color-true-text);
   text-decoration: underline;
   text-decoration-color: var(--color-true-border);
   word-break: break-all;
 }
 
-.report-markdown a:hover {
+.message-markdown a:hover {
   text-decoration-color: var(--color-true-text);
 }
 
-.report-markdown code {
+.message-markdown code {
   font-family: monospace;
   font-size: 12px;
   background: var(--color-bg-tertiary);
   padding: 1px 4px;
   border-radius: 3px;
+}
+
+.message-markdown table {
+  width: 100%;
+  margin: 10px 0 4px;
+  border-collapse: collapse;
+  font-size: 12px;
+  overflow: hidden;
+  border: 0.5px solid var(--color-border-tertiary);
+  border-radius: var(--radius-sm);
+}
+
+.message-markdown th,
+.message-markdown td {
+  padding: 7px 9px;
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 0.5px solid var(--color-border-tertiary);
+}
+
+.message-markdown th {
+  color: var(--color-text-secondary);
+  font-weight: 600;
+  background: var(--color-bg-tertiary);
+}
+
+.message-markdown tr:last-child td {
+  border-bottom: 0;
 }
 
 /* ── Pipeline stepper ─────────────────────────────────────────────────────────── */
@@ -594,6 +632,6 @@
   cursor: not-allowed;
 }
 .activity-message-bubble {
-  margin: 0 20px 16px;
+  margin: 16px 0 0;
   max-width: 760px;
 }

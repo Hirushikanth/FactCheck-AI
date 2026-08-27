@@ -330,7 +330,7 @@ export function SessionScreen() {
         {/* Messages */}
         <div className="messages">
           {chatMessages.map((msg, i) => (
-            <div key={i}>
+            <div key={i} className={`chat-turn chat-turn-${msg.role}`}>
               <MessageBubble message={msg} />
               {msg.role === "user" && msg.activityId && (
                 <ActivityBubble

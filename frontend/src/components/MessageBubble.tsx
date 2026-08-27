@@ -1,4 +1,5 @@
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { IconShieldCheck } from "@tabler/icons-react";
 
 export type ChatMessage = {
@@ -19,6 +20,7 @@ export function MessageBubble({ message }: Props) {
   const { role, content, markdown } = message;
   const isUser = role === "user";
   const isReport = !isUser && markdown === true;
+  const isAssistant = role === "assistant";
 
   return (
     <div className={`msg-row${isUser ? " user" : ""}`}>
@@ -28,9 +30,10 @@ export function MessageBubble({ message }: Props) {
       <div
         className={`msg-bubble${isUser ? " user" : " system"}${isReport ? " report" : ""}`}
       >
-        {isReport ? (
-          <div className="report-markdown">
+        {isReport || isAssistant ? (
+          <div className={`message-markdown${isReport ? " report-markdown" : ""}`}>
             <ReactMarkdown
+              remarkPlugins={[remarkGfm]}
               components={{
                 // Open links in a new tab
                 a: ({ href, children }) => (
