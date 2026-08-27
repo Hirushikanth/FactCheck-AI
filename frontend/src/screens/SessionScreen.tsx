@@ -23,6 +23,7 @@ import { MessageBubble } from "../components/MessageBubble";
 import type { ChatMessage } from "../components/MessageBubble";
 import { createInitialActivityState, reduceActivityEvent } from "../activity/reducer";
 import type { ActivityTimelineState } from "../activity/types";
+import { appendAssistantMessage } from "./chatMessages";
 import { truncate } from "../lib/format";
 
 const INITIAL_MESSAGES: ChatMessage[] = [
@@ -97,13 +98,7 @@ export function SessionScreen() {
         if (session.messages.length > 0) {
           const last = session.messages[session.messages.length - 1];
           if (last.role === "assistant") {
-            setChatMessages((prev) => {
-              const alreadyAdded = prev.some(
-                (m) => m.role === "assistant" && m.content === last.content
-              );
-              if (alreadyAdded) return prev;
-              return [...prev, { role: "assistant", content: last.content }];
-            });
+            setChatMessages((previous) => appendAssistantMessage(previous, last.content));
           }
         }
       }
@@ -113,10 +108,7 @@ export function SessionScreen() {
       }
     },
     onDialogueReply: (reply) => {
-      setChatMessages((prev) => [
-        ...prev,
-        { role: "assistant", content: reply },
-      ]);
+      setChatMessages((previous) => appendAssistantMessage(previous, reply));
     },
   });
 
