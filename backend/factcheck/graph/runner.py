@@ -7,7 +7,11 @@ from datetime import datetime, timezone
 from typing import Any, Literal, Optional
 
 from factcheck.dialogue.schemas import ConversationSummary, DialogueOutput, DialogueTurn
-from factcheck.graph.event_bus import close_session_queue, push_event
+from factcheck.graph.event_bus import (
+    close_session_queue,
+    push_agent_progress,
+    push_event,
+)
 from factcheck.graph.pipeline import _initial_state, build_graph
 from factcheck.state import FactCheckState
 
@@ -49,6 +53,13 @@ async def run_factcheck_with_events(
                         "agent_start",
                         {"agent": node_name, "timestamp": _now_iso()},
                     )
+                    await push_agent_progress(
+                        session_id,
+                        agent=node_name,
+                        stage=f"{node_name}_stage",
+                        status="started",
+                        message=f"{node_name.capitalize()} started.",
+                    )
 
                 if node_name == "extractor":
                     claims = update.get("extracted_claims", [])
@@ -71,6 +82,23 @@ async def run_factcheck_with_events(
                         {"final_report": update["final_report"]},
                     )
 
+                if node_name in _PIPELINE_AGENTS:
+                    if node_name == "extractor":
+                        count = len(update.get("extracted_claims", []))
+                        message = f"{count} claim{'s' if count != 1 else ''} extracted."
+                    elif node_name == "verifier":
+                        count = len(update.get("claim_results", []))
+                        message = f"{count} claim{'s' if count != 1 else ''} checked."
+                    else:
+                        message = "Report generated."
+                    await push_agent_progress(
+                        session_id,
+                        agent=node_name,
+                        stage=f"{node_name}_stage",
+                        status="completed",
+                        message=message,
+                    )
+
         duration = time.monotonic() - start
         await push_event(
             session_id,
@@ -78,11 +106,14 @@ async def run_factcheck_with_events(
             {"session_id": session_id, "duration_seconds": round(duration, 2)},
         )
         return state
-    except Exception as exc:
+    except Exception:
         await push_event(
             session_id,
             "pipeline_error",
-            {"error": str(exc), "agent": current_agent},
+            {
+                "agent": current_agent,
+                "reason": "Pipeline failed while processing the request.",
+            },
         )
         raise
     finally:
@@ -112,6 +143,13 @@ async def run_dialogue_with_events(
             "agent_start",
             {"agent": "dialogue", "timestamp": _now_iso()},
         )
+        await push_agent_progress(
+            session_id,
+            agent="dialogue",
+            stage="response",
+            status="started",
+            message="Dialogue started.",
+        )
 
         result = await run_dialogue(
             session_id=session_id,
@@ -127,6 +165,24 @@ async def run_dialogue_with_events(
             fc_context_covers_sequence=fc_context_covers_sequence,
         )
 
+        if result.get("error"):
+            await push_agent_progress(
+                session_id,
+                agent="dialogue",
+                stage="response",
+                status="degraded",
+                message="Dialogue response could not be completed.",
+            )
+            await push_event(
+                session_id,
+                "pipeline_error",
+                {
+                    "agent": "dialogue",
+                    "reason": "Dialogue response could not be completed.",
+                },
+            )
+            return result
+
         if result.get("response"):
             await push_event(
                 session_id,
@@ -134,17 +190,28 @@ async def run_dialogue_with_events(
                 {"message": result["response"]},
             )
 
+        await push_agent_progress(
+            session_id,
+            agent="dialogue",
+            stage="response",
+            status="completed",
+            message="Response ready.",
+        )
+
         await push_event(
             session_id,
             "pipeline_done",
             {"session_id": session_id, "duration_seconds": 0.0},
         )
         return result
-    except Exception as exc:
+    except Exception:
         await push_event(
             session_id,
             "pipeline_error",
-            {"error": str(exc), "agent": "dialogue"},
+            {
+                "agent": "dialogue",
+                "reason": "Dialogue failed while processing the request.",
+            },
         )
         raise
     finally:

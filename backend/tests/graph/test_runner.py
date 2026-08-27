@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from typing import Any
-from unittest.mock import AsyncMock
 
 import pytest
 
@@ -123,3 +122,44 @@ async def test_run_factcheck_with_events_emits_pipeline_error(monkeypatch) -> No
         await runner.run_factcheck_with_events(session_id="sess-error", text="test")
 
     assert "pipeline_error" in collected
+
+
+@pytest.mark.asyncio
+async def test_run_dialogue_error_result_emits_pipeline_error_without_done(monkeypatch) -> None:
+    async def fake_run_dialogue(**_kwargs):
+        return {
+            "response": "Sorry, I encountered an unexpected error.",
+            "intent": "clarification",
+            "dialogue_history": [],
+            "conversation_summary": None,
+            "compressed_fc_context": None,
+            "fc_context_covers_sequence": None,
+            "needs_new_factcheck": False,
+            "new_claim_text": None,
+            "error": "private internal failure",
+        }
+
+    monkeypatch.setattr("factcheck.dialogue.run_dialogue", fake_run_dialogue)
+    event_bus.create_session_hub("sess-dialogue-error")
+    collected: list[tuple[str, dict]] = []
+
+    async def capture_push(session_id: str, event: str, data: dict) -> None:
+        collected.append((event, data))
+        await event_bus.push_event(session_id, event, data)
+
+    monkeypatch.setattr(runner, "push_event", capture_push)
+
+    result = await runner.run_dialogue_with_events(
+        session_id="sess-dialogue-error",
+        user_message="Why?",
+        raw_input="The Earth is round.",
+        claim_results=[],
+    )
+
+    event_names = [event for event, _ in collected]
+    assert result["error"] == "private internal failure"
+    assert "pipeline_error" in event_names
+    assert "pipeline_done" not in event_names
+    error_payload = next(data for event, data in collected if event == "pipeline_error")
+    assert error_payload["agent"] == "dialogue"
+    assert "private internal failure" not in str(error_payload)

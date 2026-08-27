@@ -113,3 +113,39 @@ async def test_verifier_node_counts_processing_errors_not_reasoning_text(
     assert result["claim_results"][0]["processing_status"] == "error"
     assert "processing_status" not in result["claim_results"][1]
     assert any("1/2 claims had verification errors" in record.message for record in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_verdict_ready_sanitizes_processing_error(monkeypatch) -> None:
+    claim = _validated_claim("Claim that raises.")
+
+    async def fake_run_verifier(_claim: ValidatedClaim):
+        raise RuntimeError("secret stack details")
+
+    pushed_events: list[dict] = []
+
+    async def capture_push(session_id: str, event: str, data: dict) -> None:
+        pushed_events.append({"event": event, "data": data})
+
+    monkeypatch.setattr(verifier_agent, "run_verifier", fake_run_verifier)
+    monkeypatch.setattr(verifier_agent, "push_event", capture_push)
+
+    await verifier_agent.verifier_node(
+        {
+            "raw_input": "Claim that raises.",
+            "extracted_claims": [claim],
+            "claim_results": [],
+            "final_report": None,
+            "messages": [],
+            "current_agent": "",
+            "session_id": "sess-verifier-error",
+            "error": None,
+            "status": "idle",
+        }
+    )
+
+    verdict = next(item for item in pushed_events if item["event"] == "verdict_ready")
+    assert verdict["data"]["processing_status"] == "error"
+    assert verdict["data"]["degraded_reason"] == "Verification failed; evidence was insufficient."
+    assert "processing_error" not in verdict["data"]
+    assert "secret stack details" not in str(verdict["data"])

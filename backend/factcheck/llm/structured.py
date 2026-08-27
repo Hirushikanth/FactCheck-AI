@@ -13,6 +13,7 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from pydantic import BaseModel, ValidationError
 
 from factcheck.config import get_settings
+from factcheck.graph.event_bus import on_ollama_retry
 from factcheck.llm.concurrency import get_ollama_semaphore
 from factcheck.llm.retry import invoke_with_ollama_retry
 
@@ -66,6 +67,7 @@ async def _invoke_remote(operation):
     return await invoke_with_ollama_retry(
         attempt,
         max_attempts=get_settings().ollama_max_retries,
+        on_retry=on_ollama_retry,
     )
 
 

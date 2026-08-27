@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 
 from factcheck.extractor import run_extractor
 from factcheck.extractor.schemas import ValidatedClaim
-from factcheck.graph.event_bus import push_event
+from factcheck.graph.event_bus import event_scope, push_agent_progress, push_event
 from factcheck.state import FactCheckState
 
 
@@ -42,7 +42,8 @@ async def extractor_node(state: FactCheckState) -> dict[str, list[ValidatedClaim
 
     session_id = state["session_id"]
     extraction_mode = state.get("extraction_mode", "auto")
-    result = await run_extractor(state["raw_input"], extraction_mode=extraction_mode)
+    with event_scope(session_id, agent="extractor", stage="claim_extraction"):
+        result = await run_extractor(state["raw_input"], extraction_mode=extraction_mode)
 
     if result.resolved_extraction_mode:
         logger.info(
@@ -63,6 +64,15 @@ async def extractor_node(state: FactCheckState) -> dict[str, list[ValidatedClaim
                 "attempts": failure.attempts,
                 "timestamp": _now_iso(),
             },
+        )
+
+    if result.stage_failures:
+        await push_agent_progress(
+            session_id,
+            agent="extractor",
+            stage="claim_extraction",
+            status="degraded",
+            message="Using conservative extraction fallback for one or more stages.",
         )
 
     return {

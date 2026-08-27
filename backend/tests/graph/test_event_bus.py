@@ -157,3 +157,81 @@ async def test_resolve_stream_waits_for_hub() -> None:
     await creator
 
     assert hub.session_id == "sess-resolve"
+
+
+@pytest.mark.asyncio
+async def test_progress_events_replay_in_order_with_contract_fields() -> None:
+    event_bus.create_session_hub("sess-contract")
+
+    await event_bus.push_agent_progress(
+        "sess-contract",
+        agent="verifier",
+        stage="claim_verification",
+        status="started",
+        message="Verifier is checking claims",
+    )
+    await event_bus.push_search_progress(
+        "sess-contract",
+        claim_index=0,
+        query_index=0,
+        total_queries=2,
+        provider="duckduckgo",
+        status="completed",
+        result_count=3,
+    )
+    await event_bus.close_session_hub("sess-contract")
+
+    frames = await _collect_stream("sess-contract", limit=5)
+    assert "event: agent_progress" in frames[1]
+    assert '"status":"started"' in frames[1]
+    assert "event: search_progress" in frames[2]
+    assert '"result_count":3' in frames[2]
+
+
+@pytest.mark.asyncio
+async def test_thinking_events_require_explicit_capability_and_are_capped() -> None:
+    event_bus.create_session_hub(
+        "sess-thinking",
+        thinking_enabled=True,
+        thinking_supported=True,
+        thinking_max_chars=5,
+    )
+
+    await event_bus.push_thinking_chunk(
+        "sess-thinking",
+        agent="verifier",
+        stage="evaluation",
+        text="123456789",
+    )
+    await event_bus.close_session_hub("sess-thinking")
+
+    frames = await _collect_stream("sess-thinking", limit=5)
+    assert len(frames) == 2
+    assert '"text":"12345"' in frames[1]
+    assert '"truncated":true' in frames[1]
+
+
+@pytest.mark.asyncio
+async def test_thinking_events_are_suppressed_by_default() -> None:
+    event_bus.create_session_hub("sess-no-thinking")
+    emitted = await event_bus.push_thinking_chunk(
+        "sess-no-thinking",
+        agent="verifier",
+        stage="evaluation",
+        text="private model trace",
+    )
+
+    assert emitted is False
+    assert not event_bus.get_hub("sess-no-thinking").buffer
+
+
+@pytest.mark.asyncio
+async def test_retry_callback_publishes_safe_progress_message() -> None:
+    event_bus.create_session_hub("sess-retry")
+    with event_bus.event_scope("sess-retry", agent="verifier", stage="evaluation"):
+        await event_bus.on_ollama_retry({"attempt": 2, "max_attempts": 3})
+
+    stored = list(event_bus.get_hub("sess-retry").buffer)
+    assert stored[0].event == "agent_progress"
+    assert stored[0].data["message"] == "Model unavailable — retrying (2/3)"
+    assert "exception" not in str(stored[0].data).lower()
