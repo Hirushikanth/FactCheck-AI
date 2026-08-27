@@ -15,7 +15,7 @@ import {
   IconLayoutSidebar,
 } from "@tabler/icons-react";
 import { createSession, getSession, listSessions, postMessage } from "../api/client";
-import type { SessionSummary } from "../api/types";
+import type { SessionDetail, SessionSummary } from "../api/types";
 import { useApp } from "../app-context";
 import { useSessionStream } from "../hooks/useSessionStream";
 import { ActivityTimeline } from "../components/ActivityTimeline";
@@ -24,6 +24,7 @@ import type { ChatMessage } from "../components/MessageBubble";
 import { createInitialActivityState, reduceActivityEvent } from "../activity/reducer";
 import type { ActivityTimelineState } from "../activity/types";
 import { appendAssistantMessage } from "./chatMessages";
+import { buildHistoricChatMessages } from "./sessionHistory";
 import { truncate } from "../lib/format";
 
 const INITIAL_MESSAGES: ChatMessage[] = [
@@ -41,18 +42,38 @@ function restoreActivity(events: Array<{ type: string; data: Record<string, unkn
   );
 }
 
+function restoreActivitySnapshots(session: SessionDetail | null) {
+  if (!session) return {};
+  const initialRun = session.runs[0];
+  return {
+    ...(initialRun ? { [initialRun.run_id]: restoreActivity(initialRun.activity_events) } : {}),
+    ...Object.fromEntries(
+      session.messages
+        .filter((message) => message.role === "user")
+        .map((message) => [
+          `dialogue:${message.id}`,
+          restoreActivity(message.activity_events),
+        ]),
+    ),
+  };
+}
+
 // ── Session screen ────────────────────────────────────────────────────────────
 export function SessionScreen() {
-  const { activeSessionId, setActiveSessionId, setActiveSession, setActiveTab } =
+  const { activeSessionId, activeSession, setActiveSessionId, setActiveSession, setActiveTab } =
     useApp();
   const queryClient = useQueryClient();
   const [sidebarOpen, toggleSidebar] = useReducer((s: boolean) => !s, true);
 
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>(INITIAL_MESSAGES);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>(() =>
+    activeSession ? buildHistoricChatMessages(activeSession) : INITIAL_MESSAGES,
+  );
   const [inputValue, setInputValue] = useState("");
   const [isBusy, setIsBusy] = useState(false);
   const [statusError, setStatusError] = useState<string | null>(null);
-  const [activitySnapshots, setActivitySnapshots] = useState<Record<string, ActivityTimelineState>>({});
+  const [activitySnapshots, setActivitySnapshots] = useState<Record<string, ActivityTimelineState>>(() =>
+    restoreActivitySnapshots(activeSession),
+  );
   const [activeActivityId, setActiveActivityId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -130,36 +151,7 @@ export function SessionScreen() {
 
         // Reconstruct chat from stored history
         const initialRun = detail.runs[0];
-        const msgs: ChatMessage[] = [
-          {
-            role: "system",
-            content:
-              "Hello! Submit a claim and I'll verify it using multiple sources.",
-          },
-          {
-            role: "user",
-            content: initialRun?.raw_input ?? detail.raw_input,
-            activityId: initialRun?.run_id,
-            activityKind: "pipeline",
-          },
-        ];
-
-        // Show the report if the session completed
-        if (detail.final_report) {
-          msgs.push({ role: "assistant", content: detail.final_report, markdown: true });
-        }
-
-        // Append any dialogue turns that came after
-        for (const m of detail.messages) {
-          msgs.push({
-            role: m.role,
-            content: m.content,
-            activityId: m.role === "user" ? `dialogue:${m.id}` : undefined,
-            activityKind: m.role === "user" ? "dialogue" : undefined,
-          });
-        }
-
-        setChatMessages(msgs);
+        setChatMessages(buildHistoricChatMessages(detail));
         setActivitySnapshots({
           ...(initialRun
             ? { [initialRun.run_id]: restoreActivity(initialRun.activity_events) }
