@@ -158,7 +158,7 @@ async def test_run_dialogue_graph_error_returns_error_output(monkeypatch) -> Non
     """If the graph raises, run_dialogue() returns an error DialogueOutput, not a crash."""
     import factcheck.dialogue.graph as graph_module
 
-    async def failing_ainvoke(state):
+    async def failing_ainvoke(state, *, config):
         raise RuntimeError("Ollama timeout")
 
     monkeypatch.setattr(graph_module.dialogue_graph, "ainvoke", failing_ainvoke)

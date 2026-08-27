@@ -81,6 +81,38 @@ async def test_compress_history_failure_does_not_set_error_message(monkeypatch) 
     assert "error_message" not in result
 
 
+async def test_compress_history_uses_token_cap_for_long_summary(monkeypatch) -> None:
+    import factcheck.dialogue.nodes.compress_history as compress_module
+    from factcheck.dialogue.config import MAX_SUMMARY_TOKENS
+    from factcheck.dialogue.utils.tokens import estimate_tokens
+
+    long_summary = "First sentence " + "detail " * 100 + ". Second sentence " + "detail " * 100 + "."
+    compressor_llm = AsyncMock()
+    compressor_llm.ainvoke = AsyncMock(return_value=MagicMock(content=long_summary))
+    monkeypatch.setattr(
+        compress_module,
+        "get_dialogue_compressor_llm",
+        lambda **kw: compressor_llm,
+    )
+
+    history = [
+        {
+            "role": "user",
+            "content": f"Message {i}",
+            "timestamp": float(i),
+            "intent": None,
+            "token_estimate": 10,
+        }
+        for i in range(8)
+    ]
+
+    result = await compress_module.compress_history_node(
+        _base_state(dialogue_history=history, needs_compression=True)
+    )
+
+    assert estimate_tokens(result["conversation_summary"]["text"]) <= MAX_SUMMARY_TOKENS
+
+
 async def test_generate_response_clears_prior_error_message(monkeypatch) -> None:
     import factcheck.dialogue.nodes.generate_response as gen_module
 
@@ -218,6 +250,22 @@ async def test_init_context_skips_when_cache_present() -> None:
         )
     )
     assert result == {}
+
+
+async def test_init_context_caps_an_oversized_cached_context() -> None:
+    from factcheck.dialogue.config import MAX_FC_CONTEXT_TOKENS
+    from factcheck.dialogue.nodes.init_context import init_context_node
+    from factcheck.dialogue.utils.tokens import estimate_tokens
+
+    result = await init_context_node(
+        _base_state(
+            _compressed_fc_context="cached context " * 1000,
+            _fc_context_covers_sequence=1,
+            _latest_run_sequence=1,
+        )
+    )
+
+    assert estimate_tokens(result["_compressed_fc_context"]) <= MAX_FC_CONTEXT_TOKENS
 
 
 async def test_init_context_rebuilds_when_cache_stale() -> None:

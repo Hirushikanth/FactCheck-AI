@@ -78,8 +78,23 @@ def truncate_to_tokens(text: str, max_tokens: int) -> str:
 
     Appends ``' [truncated]'`` if any content was removed.
     """
+    if max_tokens <= 0:
+        return ""
+
     encoded = _encoder.encode(text)
     if len(encoded) <= max_tokens:
         return text
-    truncated = _encoder.decode(encoded[:max_tokens])
-    return truncated + " [truncated]"
+
+    marker = " [truncated]"
+    marker_tokens = len(_encoder.encode(marker))
+    content_budget = max(max_tokens - marker_tokens, 0)
+    result = _encoder.decode(encoded[:content_budget]) + marker
+
+    # Token merges at the boundary can make a conservative slice differ by a
+    # token. Keep this utility a true hard cap for all callers.
+    while len(_encoder.encode(result)) > max_tokens and content_budget > 0:
+        content_budget -= 1
+        result = _encoder.decode(encoded[:content_budget]) + marker
+    if len(_encoder.encode(result)) > max_tokens:
+        return _encoder.decode(encoded[:max_tokens])
+    return result

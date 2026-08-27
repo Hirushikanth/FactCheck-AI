@@ -26,6 +26,7 @@ from factcheck.dialogue.nodes.init_context import init_context_node
 from factcheck.dialogue.nodes.rewrite_query import rewrite_query_node
 from factcheck.dialogue.nodes.update_history import update_history_node
 from factcheck.dialogue.schemas import DialogueState
+from factcheck.graph.checkpoint import get_checkpointer
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +52,7 @@ def _route_after_intent(state: DialogueState) -> str:
 # Graph construction
 # ─────────────────────────────────────────────────────────────────────────────
 
-def build_dialogue_graph() -> StateGraph:
+def build_dialogue_graph(checkpointer=None) -> StateGraph:
     """Build and compile the Dialogue Agent StateGraph.
 
     Returns a compiled graph ready for ``ainvoke`` calls.
@@ -107,8 +108,20 @@ def build_dialogue_graph() -> StateGraph:
     graph.add_edge("forward_to_pipeline",   "acknowledge_new_claim")
     graph.add_edge("acknowledge_new_claim", END)
 
-    return graph.compile()
+    return graph.compile(
+        checkpointer=get_checkpointer() if checkpointer is None else checkpointer
+    )
 
 
 # Singleton compiled graph — imported by run_dialogue() and the thin agent wrapper
 dialogue_graph = build_dialogue_graph()
+
+
+def get_dialogue_graph():
+    """Return a graph compiled with the active lifecycle checkpointer."""
+
+    global dialogue_graph
+    checkpointer = get_checkpointer()
+    if checkpointer is not None and getattr(dialogue_graph, "checkpointer", None) is not checkpointer:
+        dialogue_graph = build_dialogue_graph(checkpointer=checkpointer)
+    return dialogue_graph

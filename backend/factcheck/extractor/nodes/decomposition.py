@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import itertools
 import logging
 
 from pydantic import BaseModel, Field, field_validator, model_validator

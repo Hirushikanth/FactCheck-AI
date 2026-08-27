@@ -19,8 +19,42 @@ from __future__ import annotations
 import re
 from typing import Optional
 
-from factcheck.dialogue.config import MAX_FC_CONTEXT_TOKENS, SYSTEM_PROMPT_TOKENS
+from factcheck.dialogue.config import MAX_FC_CONTEXT_TOKENS
 from factcheck.dialogue.schemas import DialogueTurn
+from factcheck.dialogue.utils.tokens import estimate_tokens, truncate_to_tokens
+
+
+_FACTCHECK_CONTEXT_HEADER = "=== FACT-CHECK RESULTS (session context) ==="
+_FACTCHECK_CONTEXT_FOOTER = "=== END OF FACT-CHECK CONTEXT ==="
+
+
+def cap_factcheck_context(text: str) -> str:
+    """Hard-cap fact-check context while retaining its block markers."""
+    if estimate_tokens(text) <= MAX_FC_CONTEXT_TOKENS:
+        return text
+
+    header_start = text.find(_FACTCHECK_CONTEXT_HEADER)
+    footer_start = text.rfind(_FACTCHECK_CONTEXT_FOOTER)
+    if header_start >= 0 and footer_start > header_start:
+        body_start = header_start + len(_FACTCHECK_CONTEXT_HEADER)
+        body = text[body_start:footer_start]
+        # Extras may be appended after the original footer during assembly;
+        # include them in the bounded body instead of dropping them.
+        body += text[footer_start + len(_FACTCHECK_CONTEXT_FOOTER):]
+        wrapper = f"{_FACTCHECK_CONTEXT_HEADER}\n\n{{}}\n{_FACTCHECK_CONTEXT_FOOTER}"
+        body_budget = max(MAX_FC_CONTEXT_TOKENS - estimate_tokens(wrapper.format("")), 0)
+        for _ in range(body_budget + 1):
+            body_short = truncate_to_tokens(body, body_budget)
+            candidate = wrapper.format(body_short)
+            if estimate_tokens(candidate) <= MAX_FC_CONTEXT_TOKENS:
+                return candidate
+            if body_budget == 0:
+                break
+            body_budget -= 1
+
+        return wrapper.format("[truncated]")
+
+    return truncate_to_tokens(text, MAX_FC_CONTEXT_TOKENS)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -72,7 +106,7 @@ def compress_factcheck_context(
     if not claim_results:
         return "=== FACT-CHECK RESULTS (session context) ===\nNo claims were checked in this session.\n=== END OF FACT-CHECK CONTEXT ==="
 
-    lines = ["=== FACT-CHECK RESULTS (session context) ==="]
+    lines = [_FACTCHECK_CONTEXT_HEADER]
 
     for i, cr in enumerate(claim_results, 1):
         # Claim text
@@ -93,11 +127,11 @@ def compress_factcheck_context(
         else:
             confidence_str = "N/A"
 
-        # Evidence summary: join first 2 evidence snippets + reasoning excerpt
-        evidence_items: list[str] = cr.get("evidence", [])
+        # Evidence summary: use only the verifier's bounded dialogue projection.
+        evidence_items: list[str] = cr.get("dialogue_evidence") or []
         reasoning: str = cr.get("reasoning", "")
         if evidence_items:
-            evidence_raw = "; ".join(evidence_items[:2])
+            evidence_raw = "; ".join(evidence_items)
         elif reasoning:
             evidence_raw = reasoning
         else:
@@ -118,8 +152,8 @@ def compress_factcheck_context(
             f"  Sources: {sources_str}"
         )
 
-    lines.append("\n=== END OF FACT-CHECK CONTEXT ===")
-    return "\n".join(lines)
+    lines.append(f"\n{_FACTCHECK_CONTEXT_FOOTER}")
+    return cap_factcheck_context("\n".join(lines))
 
 
 def compress_factcheck_runs(
@@ -151,11 +185,22 @@ def compress_factcheck_runs(
             f"{claim_block}"
         )
 
-    return (
-        "=== FACT-CHECK RESULTS (session context) ===\n"
+    context = (
+        f"{_FACTCHECK_CONTEXT_HEADER}\n"
         + "\n\n".join(sections)
-        + "\n=== END OF FACT-CHECK CONTEXT ==="
+        + f"\n{_FACTCHECK_CONTEXT_FOOTER}"
     )
+    if estimate_tokens(context) <= MAX_FC_CONTEXT_TOKENS:
+        return context
+
+    # On overflow, construct from newest to oldest so truncation retains the
+    # latest completed run. Normal-sized sessions keep chronological order.
+    newest_first = (
+        f"{_FACTCHECK_CONTEXT_HEADER}\n"
+        + "\n\n".join(reversed(sections))
+        + f"\n{_FACTCHECK_CONTEXT_FOOTER}"
+    )
+    return cap_factcheck_context(newest_first)
 
 
 def build_session_context_extras(
@@ -166,8 +211,6 @@ def build_session_context_extras(
     max_report_tokens: int = 200,
 ) -> str:
     """Build optional session metadata appended to the fact-check context block."""
-    from factcheck.dialogue.utils.tokens import estimate_tokens, truncate_to_tokens
-
     sections: list[str] = []
 
     if original_text and original_text.strip():

@@ -14,7 +14,7 @@ import time
 from factcheck.dialogue.config import MAX_SUMMARY_TOKENS, SLIDING_WINDOW_MAX_TURNS
 from factcheck.dialogue.prompts import build_compressor_prompt
 from factcheck.dialogue.schemas import ConversationSummary, DialogueState
-from factcheck.dialogue.utils.tokens import estimate_tokens
+from factcheck.dialogue.utils.tokens import estimate_tokens, truncate_to_tokens
 from factcheck.llm.concurrency import get_ollama_semaphore
 from factcheck.llm.factory import get_dialogue_compressor_llm
 
@@ -25,7 +25,7 @@ async def compress_history_node(state: DialogueState) -> dict:
     """Summarise turns outside the sliding window into a rolling summary.
 
     The new summary replaces the old one (rather than chaining).  It is hard-
-    capped at MAX_SUMMARY_TOKENS by truncating at the last sentence boundary.
+    capped at MAX_SUMMARY_TOKENS using token-level truncation.
     """
     history = state.get("dialogue_history", [])
     window_size = SLIDING_WINDOW_MAX_TURNS
@@ -48,10 +48,7 @@ async def compress_history_node(state: DialogueState) -> dict:
 
         # Hard cap at MAX_SUMMARY_TOKENS
         if estimate_tokens(summary_text) > MAX_SUMMARY_TOKENS:
-            sentences = summary_text.split(". ")
-            summary_text = ". ".join(sentences[:2])
-            if not summary_text.endswith("."):
-                summary_text += "."
+            summary_text = truncate_to_tokens(summary_text, MAX_SUMMARY_TOKENS)
 
         new_summary = ConversationSummary(
             text=summary_text,

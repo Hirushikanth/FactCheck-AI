@@ -9,6 +9,11 @@ export type Verdict =
 export type SessionStatus = "running" | "done" | "error";
 export type RunTrigger = "initial" | "dialogue";
 
+export interface CreateSessionRequest {
+  input: string;
+  session_id: string;
+}
+
 export interface ClaimResult {
   claim: string;
   verdict: Verdict;

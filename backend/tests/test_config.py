@@ -1,3 +1,5 @@
+import pytest
+
 from factcheck.config import AppSettings
 
 
@@ -60,3 +62,14 @@ def test_ollama_num_ctx_env_override(monkeypatch) -> None:
     settings = AppSettings(_env_file=None)
 
     assert settings.ollama_num_ctx == 8192
+
+
+def test_demo_configuration_requires_a_keyed_fallback_when_enabled() -> None:
+    settings = AppSettings(
+        search_provider_order="duckduckgo,tavily",
+        tavily_api_key=None,
+        _env_file=None,
+    )
+
+    with pytest.raises(ValueError, match="TAVILY_API_KEY"):
+        settings.validate_search_demo_config()

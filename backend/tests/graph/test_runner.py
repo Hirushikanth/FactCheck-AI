@@ -31,14 +31,17 @@ def _validated_claim() -> ValidatedClaim:
 class _FakeCompiledGraph:
     def __init__(self, chunks: list[dict[str, dict[str, Any]]]) -> None:
         self._chunks = chunks
+        self.config = None
 
     async def astream(
         self,
         state: dict[str, Any],
         *,
+        config: dict[str, Any],
         stream_mode: str,
     ) -> AsyncIterator[dict[str, dict[str, Any]]]:
         assert stream_mode == "updates"
+        self.config = config
         for chunk in self._chunks:
             yield chunk
 
@@ -98,12 +101,13 @@ async def test_run_factcheck_with_events_emits_contract_events(monkeypatch) -> N
     assert "verdict_ready" not in event_names
     assert "report_ready" in event_names
     assert event_names[-1] == "pipeline_done"
+    assert fake_graph.config == {"configurable": {"thread_id": "sess-runner"}}
 
 
 @pytest.mark.asyncio
 async def test_run_factcheck_with_events_emits_pipeline_error(monkeypatch) -> None:
     class _FailingGraph:
-        async def astream(self, state, *, stream_mode: str):
+        async def astream(self, state, *, config, stream_mode: str):
             raise RuntimeError("boom")
             yield {}
 

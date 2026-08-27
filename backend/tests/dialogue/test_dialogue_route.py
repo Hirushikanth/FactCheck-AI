@@ -127,7 +127,6 @@ def test_dialogue_route_triggers_pipeline_for_new_claim(client, temp_db, monkeyp
     _seed_session("sess-new-claim", db_path=temp_db)
 
     async def fake_run_dialogue_turn(**kwargs):
-        message = kwargs["user_message"]
         return {
             "response": "Queued.",
             "intent": "new_claim",

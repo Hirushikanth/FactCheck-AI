@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from typing import Any, Literal, Optional
 
 from factcheck.dialogue.schemas import ConversationSummary, DialogueOutput, DialogueTurn
+from factcheck.graph.checkpoint import thread_config
 from factcheck.graph.event_bus import (
     close_session_queue,
     push_agent_progress,
@@ -41,7 +42,11 @@ async def run_factcheck_with_events(
 
     try:
         graph = build_graph()
-        async for chunk in graph.astream(state, stream_mode="updates"):
+        async for chunk in graph.astream(
+            state,
+            config=thread_config(session_id),
+            stream_mode="updates",
+        ):
             for node_name, update in chunk.items():
                 current_agent = node_name
                 state = {**state, **update}

@@ -207,13 +207,18 @@ export function SessionScreen() {
 
     if (!activeSessionId) {
       setIsBusy(true);
+      const sessionId = crypto.randomUUID();
+      setActiveSessionId(sessionId);
       try {
-        const result = await createSession(text);
-        setActiveSessionId(result.session_id);
+        const result = await createSession(text, sessionId);
+        if (result.session_id !== sessionId) {
+          throw new Error("Session ID mismatch");
+        }
         queryClient.invalidateQueries({ queryKey: ["sessions"] });
 
       } catch (err) {
         setIsBusy(false);
+        setActiveSessionId(null);
         setStatusError(err instanceof Error ? err.message : "Failed to create session");
       }
       return;

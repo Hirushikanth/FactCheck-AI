@@ -22,6 +22,7 @@ class ClaimResult(TypedDict):
     verdict: Verdict
     confidence: float
     evidence: list[str]
+    dialogue_evidence: NotRequired[list[str]]
     sources: list[str]
     reasoning: str
     search_queries: list[str]

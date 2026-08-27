@@ -1,4 +1,5 @@
 import type {
+  CreateSessionRequest,
   HealthResponse,
   SessionDetail,
   SessionSummary,
@@ -20,12 +21,13 @@ export async function getHealth(): Promise<HealthResponse> {
 }
 
 export async function createSession(
-  input: string
+  input: string,
+  sessionId: string,
 ): Promise<{ session_id: string; status: string }> {
   const res = await fetch(`${API_BASE}/sessions`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ input }),
+    body: JSON.stringify({ input, session_id: sessionId } satisfies CreateSessionRequest),
   });
   return handleResponse(res);
 }

@@ -13,6 +13,8 @@ from factcheck.config import AppSettings
 from factcheck.db import session_store
 from factcheck.graph import event_bus
 
+CLIENT_SESSION_ID = "11111111-1111-4111-8111-111111111111"
+
 
 @pytest.fixture(autouse=True)
 def clear_hubs():
@@ -48,17 +50,40 @@ def test_create_session_returns_202_and_running_status(client, temp_db, monkeypa
 
     response = client.post(
         "/api/sessions",
-        json={"input": "The Earth is round."},
+        json={"input": "The Earth is round.", "session_id": CLIENT_SESSION_ID},
     )
 
     assert response.status_code == 202
     body = response.json()
     assert body["status"] == "running"
     assert body["session_id"]
+    assert body["session_id"] == CLIENT_SESSION_ID
 
     session = session_store.get_session(body["session_id"])
     assert session is not None
     assert session["status"] == "running"
+
+
+def test_start_session_rejects_existing_client_session_id(client, monkeypatch) -> None:
+    monkeypatch.setattr("app.routers.sessions._run_and_persist", AsyncMock())
+    session_store.create_session(CLIENT_SESSION_ID, "Existing claim.")
+
+    response = client.post(
+        "/api/sessions",
+        json={"input": "Another claim.", "session_id": CLIENT_SESSION_ID},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Session already exists"
+
+
+def test_start_session_requires_a_valid_client_uuid(client) -> None:
+    response = client.post(
+        "/api/sessions",
+        json={"input": "A claim", "session_id": "not-a-uuid"},
+    )
+
+    assert response.status_code == 422
 
 
 def test_get_session_returns_404_for_missing(client, temp_db) -> None:
@@ -188,7 +213,7 @@ def test_stream_returns_200_with_stream_open_after_create(
 
     create_response = client.post(
         "/api/sessions",
-        json={"input": "The Earth is round."},
+        json={"input": "The Earth is round.", "session_id": CLIENT_SESSION_ID},
     )
     session_id = create_response.json()["session_id"]
 
@@ -198,4 +223,3 @@ def test_stream_returns_200_with_stream_open_after_create(
     assert "event: stream_open" in response.text
     assert session_id in response.text
     assert event_bus.get_hub(session_id) is not None
-

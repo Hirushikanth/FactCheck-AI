@@ -5,12 +5,14 @@ import sys
 import time
 import types
 
+import httpx
 import pytest
 
 from factcheck.config import AppSettings, get_settings
 from factcheck.search import SearchHit, build_provider_chain, search_with_fallback
 from factcheck.search.providers import (
     DuckDuckGoProvider,
+    SerperProvider,
     TavilyProvider,
     _jittered_backoff,
     _is_likely_throttle,
@@ -405,3 +407,148 @@ async def test_tavily_provider_maps_raw_content_to_page_text(monkeypatch) -> Non
             page_text="Full page article text.",
         )
     ]
+
+
+async def test_tavily_retries_transient_network_failure_then_returns_hits(monkeypatch) -> None:
+    class FakeResponse:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict:
+            return {
+                "results": [
+                    {
+                        "url": "https://example.com/tavily",
+                        "title": "Tavily result",
+                        "content": "Evidence from Tavily.",
+                    }
+                ]
+            }
+
+    class FakeAsyncClient:
+        def __init__(self, responses):
+            self.responses = iter(responses)
+            self.calls = 0
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, traceback):
+            return False
+
+        async def post(self, *args, **kwargs):
+            self.calls += 1
+            response = next(self.responses)
+            if isinstance(response, BaseException):
+                raise response
+            return response
+
+    client = FakeAsyncClient([httpx.ConnectError("temporary outage"), FakeResponse()])
+    sleeps: list[float] = []
+
+    async def capture_sleep(delay: float) -> None:
+        sleeps.append(delay)
+
+    monkeypatch.setattr(
+        "factcheck.search.providers.httpx.AsyncClient",
+        lambda *args, **kwargs: client,
+    )
+    monkeypatch.setattr("factcheck.search.providers.asyncio.sleep", capture_sleep)
+    monkeypatch.setattr(
+        "factcheck.search.providers._jittered_backoff",
+        lambda attempt, base, max_delay: 0.5,
+    )
+
+    hits = await TavilyProvider("test-key").search("claim", max_results=2)
+
+    assert client.calls == 2
+    assert sleeps == [0.5]
+    assert len(hits) == 1
+
+
+async def test_serper_retries_transient_network_failure_then_returns_hits(monkeypatch) -> None:
+    class FakeResponse:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict:
+            return {
+                "organic": [
+                    {
+                        "link": "https://example.com/serper",
+                        "title": "Serper result",
+                        "snippet": "Evidence from Serper.",
+                    }
+                ]
+            }
+
+    class FakeAsyncClient:
+        def __init__(self, responses):
+            self.responses = iter(responses)
+            self.calls = 0
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, traceback):
+            return False
+
+        async def post(self, *args, **kwargs):
+            self.calls += 1
+            response = next(self.responses)
+            if isinstance(response, BaseException):
+                raise response
+            return response
+
+    client = FakeAsyncClient([httpx.ConnectError("temporary outage"), FakeResponse()])
+    sleeps: list[float] = []
+
+    async def capture_sleep(delay: float) -> None:
+        sleeps.append(delay)
+
+    monkeypatch.setattr(
+        "factcheck.search.providers.httpx.AsyncClient",
+        lambda *args, **kwargs: client,
+    )
+    monkeypatch.setattr("factcheck.search.providers.asyncio.sleep", capture_sleep)
+    monkeypatch.setattr(
+        "factcheck.search.providers._jittered_backoff",
+        lambda attempt, base, max_delay: 0.5,
+    )
+
+    hits = await SerperProvider("test-key").search("claim", max_results=2)
+
+    assert client.calls == 2
+    assert sleeps == [0.5]
+    assert len(hits) == 1
+
+
+async def test_serper_does_not_retry_non_retryable_4xx(monkeypatch) -> None:
+    response = httpx.Response(
+        status_code=401,
+        request=httpx.Request("POST", "https://google.serper.dev/search"),
+    )
+
+    class FakeAsyncClient:
+        calls = 0
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, traceback):
+            return False
+
+        async def post(self, *args, **kwargs):
+            self.calls += 1
+            return response
+
+    client = FakeAsyncClient()
+    monkeypatch.setattr(
+        "factcheck.search.providers.httpx.AsyncClient",
+        lambda *args, **kwargs: client,
+    )
+
+    with pytest.raises(httpx.HTTPStatusError):
+        await SerperProvider("test-key").search("claim", max_results=2)
+
+    assert client.calls == 1
