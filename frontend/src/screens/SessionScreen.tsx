@@ -16,7 +16,7 @@ import {
 } from "@tabler/icons-react";
 import { createSession, getSession, listSessions, postMessage } from "../api/client";
 import type { SessionSummary } from "../api/types";
-import { useApp } from "../App";
+import { useApp } from "../app-context";
 import { useSessionStream, buildPipelineSteps } from "../hooks/useSessionStream";
 import { PipelineStepper } from "../components/PipelineStepper";
 import { MessageBubble } from "../components/MessageBubble";

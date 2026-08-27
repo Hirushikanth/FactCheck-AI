@@ -11,7 +11,7 @@ import {
 } from "@tabler/icons-react";
 import { getSession } from "../api/client";
 import type { ClaimResult } from "../api/types";
-import { useApp } from "../App";
+import { useApp } from "../app-context";
 import {
   toUiVerdict,
   dominantVerdict,

@@ -259,12 +259,13 @@ export function useSessionStream(
           if (dataLines.length === 0) continue;
           if (signal.aborted) return;
 
-          let data: Record<string, unknown> = {};
-          try {
-            data = JSON.parse(dataLines.join("\n"));
-          } catch {
-            data = { raw: dataLines.join("\n") };
-          }
+          const data: Record<string, unknown> = (() => {
+            try {
+              return JSON.parse(dataLines.join("\n"));
+            } catch {
+              return { raw: dataLines.join("\n") };
+            }
+          })();
 
           await handleEvent(eventName, data, sessionId);
         }

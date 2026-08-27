@@ -1,4 +1,4 @@
-import { useState, createContext, useContext } from "react";
+import { useState } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   IconShieldCheck,
@@ -9,22 +9,8 @@ import { SessionScreen } from "./screens/SessionScreen";
 import { ResultsScreen } from "./screens/ResultsScreen";
 import { HistoryScreen } from "./screens/HistoryScreen";
 import { useHealth } from "./hooks/useHealth";
+import { AppContext, type AppContextValue, type AppTab } from "./app-context";
 import type { SessionDetail } from "./api/types";
-
-// ── Global app context ────────────────────────────────────────────────────────
-export type AppTab = "session" | "results" | "history";
-
-interface AppContextValue {
-  activeTab: AppTab;
-  setActiveTab: (tab: AppTab) => void;
-  activeSessionId: string | null;
-  setActiveSessionId: (id: string | null) => void;
-  activeSession: SessionDetail | null;
-  setActiveSession: (s: SessionDetail | null) => void;
-}
-
-const AppContext = createContext<AppContextValue>({} as AppContextValue);
-export const useApp = () => useContext(AppContext);
 
 // ── Query client ──────────────────────────────────────────────────────────────
 const queryClient = new QueryClient({

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 
+import httpx
 from pydantic import BaseModel
 
 from factcheck.extractor.utils.voting import process_with_voting
@@ -84,6 +85,25 @@ class StructuredNonePlainJsonLlm:
     async def ainvoke(self, messages):
         self.plain_messages.append(messages)
         return '{"value": "plain-json"}'
+
+
+class TransientThenValidStructuredInvoker:
+    def __init__(self):
+        self.calls = 0
+
+    async def ainvoke(self, messages):
+        self.calls += 1
+        if self.calls == 1:
+            raise httpx.ConnectError("Ollama unavailable")
+        return DemoOutput(value="recovered")
+
+
+class TransientThenValidStructuredLlm:
+    def __init__(self):
+        self.invoker = TransientThenValidStructuredInvoker()
+
+    def with_structured_output(self, output_class, **kwargs):
+        return self.invoker
 
 
 async def test_process_with_voting_requires_minimum_successes() -> None:
@@ -238,6 +258,19 @@ async def test_structured_llm_helper_returns_parsed_model() -> None:
     )
 
     assert result == response
+
+
+async def test_structured_llm_helper_retries_transient_transport_failure() -> None:
+    llm = TransientThenValidStructuredLlm()
+
+    result = await call_llm_with_structured_output(
+        llm=llm,
+        output_class=DemoOutput,
+        messages=[("human", "Return structured output.")],
+    )
+
+    assert result == DemoOutput(value="recovered")
+    assert llm.invoker.calls == 2
 
 
 async def test_structured_llm_helper_retries_once_with_schema_hint() -> None:
