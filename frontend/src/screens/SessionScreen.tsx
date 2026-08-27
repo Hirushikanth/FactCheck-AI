@@ -311,17 +311,17 @@ export function SessionScreen() {
           {chatMessages.map((msg, i) => (
             <MessageBubble key={i} message={msg} />
           ))}
+          {showActivity && (
+            <div className="activity-message-bubble">
+              <ActivityTimeline
+                timeline={streamState.activity}
+                thinkingEnabled={streamState.thinkingEnabled}
+                onThinkingEnabledChange={setThinkingEnabled}
+              />
+            </div>
+          )}
           <div ref={messagesEndRef} />
         </div>
-
-        {/* Agent-first activity timeline */}
-        {showActivity && (
-          <ActivityTimeline
-            timeline={streamState.activity}
-            thinkingEnabled={streamState.thinkingEnabled}
-            onThinkingEnabledChange={setThinkingEnabled}
-          />
-        )}
 
         {/* Input */}
         <div className="chat-input-area">

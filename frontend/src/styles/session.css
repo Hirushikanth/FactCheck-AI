@@ -593,3 +593,7 @@
   opacity: 0.35;
   cursor: not-allowed;
 }
+.activity-message-bubble {
+  margin: 0 20px 16px;
+  max-width: 760px;
+}

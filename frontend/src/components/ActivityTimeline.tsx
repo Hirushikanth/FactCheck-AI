@@ -34,7 +34,7 @@ const AGENT_ICONS: Record<PipelineAgent, typeof IconBrain> = {
 };
 
 function durationLabel(agent: ActivityAgent): string | null {
-  if (agent.durationMs === undefined) return null;
+  if (agent.durationMs === undefined || agent.durationMs < 100) return null;
   return `${(agent.durationMs / 1000).toFixed(1)}s`;
 }
 
@@ -159,7 +159,7 @@ function AgentRow({
   const childClaims = agent.agent === "verifier" ? agent.claims : [];
   const standaloneActions = agent.agent === "verifier"
     ? agent.actions.filter((action) => action.claimIndex === undefined)
-    : agent.actions;
+    : [];
   return (
     <li className={`activity-agent activity-agent-${agent.status}`}>
       <div className="activity-agent-heading">
@@ -170,7 +170,7 @@ function AgentRow({
         <span className="activity-agent-status">{statusLabel(agent.status)}</span>
         {durationLabel(agent) && <span className="activity-agent-duration">{durationLabel(agent)}</span>}
       </div>
-      {agent.summary && <p className="activity-agent-summary">{agent.summary}</p>}
+      {agent.summary && !(agent.agent === "verifier" && childClaims.length > 0) && <p className="activity-agent-summary">{agent.summary}</p>}
       {(childClaims.length > 0 || standaloneActions.length > 0) && (
         <ul className="activity-children" aria-label={`${agent.label} activity details`}>
           {childClaims.map((claim) => (
@@ -249,14 +249,8 @@ export function ActivityTimeline({
       {expanded && (
         <div id="activity-timeline-content" className="activity-content">
           <ol className="activity-agent-list" aria-label="Fact-check pipeline">
-            {AGENT_ORDER.map((agent) => (
-              <AgentRow
-                key={agent}
-                agent={timeline.agents[agent]}
-                thinkingEnabled={thinkingEnabled && hasThinking}
-                openThinking={openThinking}
-                onThinkingToggle={toggleThinking}
-              />
+            {AGENT_ORDER.filter((agent) => timeline.agents[agent].status !== "pending").map((agent) => (
+              <AgentRow key={agent} agent={timeline.agents[agent]} thinkingEnabled={thinkingEnabled && hasThinking} openThinking={openThinking} onThinkingToggle={toggleThinking} />
             ))}
           </ol>
           {hasThinking && !thinkingEnabled && (
