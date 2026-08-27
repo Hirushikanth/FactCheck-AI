@@ -80,7 +80,7 @@ async def start_session(
     session_id = str(uuid.uuid4())
 
     run_id = await asyncio.to_thread(create_session, session_id, body.input)
-    create_session_hub(session_id, run_id=run_id)
+    create_session_hub(session_id, run_id=run_id, persist_events=True)
     background_tasks.add_task(_run_and_persist, session_id, run_id, body.input)
 
     return CreateSessionResponse(session_id=session_id, status="running")
@@ -145,7 +145,7 @@ async def post_message(
     message_id = str(
         await asyncio.to_thread(save_user_message, session_id, body.message)
     )
-    create_session_hub(session_id)
+    create_session_hub(session_id, run_id=f"dialogue:{message_id}", persist_events=True)
     background_tasks.add_task(run_dialogue_turn_background, session_id, body.message)
 
     return PostMessageResponse(message_id=message_id)

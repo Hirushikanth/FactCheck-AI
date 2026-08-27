@@ -20,7 +20,8 @@ class AppSettings(BaseSettings):
     ollama_model: str = "gemma4"
     ollama_temperature: float = 0.0
     ollama_timeout: int = 120
-    ollama_max_retries: int = 3
+    # Total attempts per remote Ollama call, including the initial attempt.
+    ollama_max_retries: int = Field(default=3, ge=1)
     ollama_num_ctx: int | None = Field(default=None, ge=1)
     # Maximum number of concurrent in-flight requests sent to Ollama.
     # Keep at 1 for consumer GPUs; raise to 2 only on high-VRAM machines.

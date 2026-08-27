@@ -15,15 +15,17 @@ import {
   IconLayoutSidebar,
 } from "@tabler/icons-react";
 import { createSession, getSession, listSessions, postMessage } from "../api/client";
-import type { SessionSummary } from "../api/types";
-import { useApp } from "../App";
-import { useSessionStream, buildPipelineSteps } from "../hooks/useSessionStream";
-import { PipelineStepper } from "../components/PipelineStepper";
+import type { SessionDetail, SessionSummary } from "../api/types";
+import { useApp } from "../app-context";
+import { useSessionStream } from "../hooks/useSessionStream";
+import { ActivityTimeline } from "../components/ActivityTimeline";
 import { MessageBubble } from "../components/MessageBubble";
 import type { ChatMessage } from "../components/MessageBubble";
+import { createInitialActivityState, reduceActivityEvent } from "../activity/reducer";
+import type { ActivityTimelineState } from "../activity/types";
+import { appendAssistantMessage } from "./chatMessages";
+import { buildHistoricChatMessages } from "./sessionHistory";
 import { truncate } from "../lib/format";
-
-const INTERIM_VERIFYING_PREFIX = "Verifying that claim now";
 
 const INITIAL_MESSAGES: ChatMessage[] = [
   {
@@ -33,33 +35,58 @@ const INITIAL_MESSAGES: ChatMessage[] = [
   },
 ];
 
+function restoreActivity(events: Array<{ type: string; data: Record<string, unknown> }>) {
+  return events.reduce(
+    (timeline, event) => reduceActivityEvent(timeline, event),
+    createInitialActivityState(),
+  );
+}
+
+function restoreActivitySnapshots(session: SessionDetail | null) {
+  if (!session) return {};
+  const initialRun = session.runs[0];
+  return {
+    ...(initialRun ? { [initialRun.run_id]: restoreActivity(initialRun.activity_events) } : {}),
+    ...Object.fromEntries(
+      session.messages
+        .filter((message) => message.role === "user")
+        .map((message) => [
+          `dialogue:${message.id}`,
+          restoreActivity(message.activity_events),
+        ]),
+    ),
+  };
+}
+
 // ── Session screen ────────────────────────────────────────────────────────────
 export function SessionScreen() {
-  const { activeSessionId, setActiveSessionId, setActiveSession, setActiveTab } =
+  const { activeSessionId, activeSession, setActiveSessionId, setActiveSession, setActiveTab } =
     useApp();
   const queryClient = useQueryClient();
   const [sidebarOpen, toggleSidebar] = useReducer((s: boolean) => !s, true);
 
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>(INITIAL_MESSAGES);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>(() =>
+    activeSession ? buildHistoricChatMessages(activeSession) : INITIAL_MESSAGES,
+  );
   const [inputValue, setInputValue] = useState("");
   const [isBusy, setIsBusy] = useState(false);
   const [statusError, setStatusError] = useState<string | null>(null);
+  const [activitySnapshots, setActivitySnapshots] = useState<Record<string, ActivityTimelineState>>(() =>
+    restoreActivitySnapshots(activeSession),
+  );
+  const [activeActivityId, setActiveActivityId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Helper: append (or replace) the final report as a markdown bot bubble.
-  // Removes the interim "Verifying…" bubble and deduplicates.
+  // Add the final report once; follow-up dialogue may appear after it.
   const appendReportMessage = useCallback((report: string) => {
     setChatMessages((prev) => {
-      // Skip if this exact report is already the last assistant message
-      const lastAssistant = [...prev].reverse().find((m) => m.role === "assistant");
-      if (lastAssistant?.content === report) return prev;
+      // A dialogue response may now follow the report, so deduplicate across the
+      // whole conversation rather than only looking at the final assistant turn.
+      if (prev.some((message) => message.markdown && message.content === report)) {
+        return prev;
+      }
 
-      // Strip any interim "Verifying…" assistant bubble
-      const withoutInterim = prev.filter(
-        (m) => !(m.role === "assistant" && m.content.startsWith(INTERIM_VERIFYING_PREFIX))
-      );
-
-      return [...withoutInterim, { role: "assistant", content: report, markdown: true }];
+      return [...prev, { role: "assistant", content: report, markdown: true }];
     });
   }, []);
 
@@ -71,7 +98,7 @@ export function SessionScreen() {
   });
 
   // SSE for active session
-  const { state: streamState } = useSessionStream(activeSessionId, {
+  const { state: streamState, setThinkingEnabled, connectStream, startNewActivity } = useSessionStream(activeSessionId, {
     onReportReady: (report) => {
       appendReportMessage(report);
     },
@@ -92,13 +119,7 @@ export function SessionScreen() {
         if (session.messages.length > 0) {
           const last = session.messages[session.messages.length - 1];
           if (last.role === "assistant") {
-            setChatMessages((prev) => {
-              const alreadyAdded = prev.some(
-                (m) => m.role === "assistant" && m.content === last.content
-              );
-              if (alreadyAdded) return prev;
-              return [...prev, { role: "assistant", content: last.content }];
-            });
+            setChatMessages((previous) => appendAssistantMessage(previous, last.content));
           }
         }
       }
@@ -108,26 +129,14 @@ export function SessionScreen() {
       }
     },
     onDialogueReply: (reply) => {
-      setChatMessages((prev) => [
-        ...prev,
-        { role: "assistant", content: reply },
-      ]);
+      setChatMessages((previous) => appendAssistantMessage(previous, reply));
     },
   });
-
-  const pipelineSteps = buildPipelineSteps(
-    streamState.completedAgents,
-    streamState.activeAgents
-  );
-
-  const showStepper =
-    activeSessionId !== null &&
-    pipelineSteps.some((s) => s.status !== "pending");
 
   // Scroll chat to bottom on new messages
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [chatMessages, showStepper]);
+  }, [chatMessages, activeActivityId, streamState.activity]);
 
   const handleSelectSession = useCallback(
     async (session: SessionSummary) => {
@@ -141,26 +150,22 @@ export function SessionScreen() {
         setActiveSession(detail);
 
         // Reconstruct chat from stored history
-        const msgs: ChatMessage[] = [
-          {
-            role: "system",
-            content:
-              "Hello! Submit a claim and I'll verify it using multiple sources.",
-          },
-          { role: "user", content: detail.raw_input },
-        ];
-
-        // Show the report if the session completed
-        if (detail.final_report) {
-          msgs.push({ role: "assistant", content: detail.final_report, markdown: true });
-        }
-
-        // Append any dialogue turns that came after
-        for (const m of detail.messages) {
-          msgs.push({ role: m.role, content: m.content });
-        }
-
-        setChatMessages(msgs);
+        const initialRun = detail.runs[0];
+        setChatMessages(buildHistoricChatMessages(detail));
+        setActivitySnapshots({
+          ...(initialRun
+            ? { [initialRun.run_id]: restoreActivity(initialRun.activity_events) }
+            : {}),
+          ...Object.fromEntries(
+            detail.messages
+              .filter((message) => message.role === "user")
+              .map((message) => [
+                `dialogue:${message.id}`,
+                restoreActivity(message.activity_events),
+              ]),
+          ),
+        });
+        setActiveActivityId(null);
       } catch {
         // ignore — SSE will catch up on reconnect
       }
@@ -175,6 +180,8 @@ export function SessionScreen() {
     setStatusError(null);
     setInputValue("");
     setChatMessages(INITIAL_MESSAGES);
+    setActivitySnapshots({});
+    setActiveActivityId(null);
   }, [setActiveSessionId, setActiveSession]);
 
   const handleSend = useCallback(async () => {
@@ -183,7 +190,20 @@ export function SessionScreen() {
     setInputValue("");
     setStatusError(null);
 
-    setChatMessages((prev) => [...prev, { role: "user", content: text }]);
+    const activityId = crypto.randomUUID();
+    const activityKind = activeSessionId ? "dialogue" : "pipeline";
+    if (activeActivityId) {
+      setActivitySnapshots((previous) => ({
+        ...previous,
+        [activeActivityId]: streamState.activity,
+      }));
+    }
+    setActiveActivityId(activityId);
+    startNewActivity();
+    setChatMessages((prev) => [
+      ...prev,
+      { role: "user", content: text, activityId, activityKind },
+    ]);
 
     if (!activeSessionId) {
       setIsBusy(true);
@@ -192,15 +212,6 @@ export function SessionScreen() {
         setActiveSessionId(result.session_id);
         queryClient.invalidateQueries({ queryKey: ["sessions"] });
 
-        // Interim message — will be replaced by the actual report via onReportReady
-        setChatMessages((prev) => [
-          ...prev,
-          {
-            role: "assistant",
-            content:
-              `${INTERIM_VERIFYING_PREFIX} — running the pipeline across multiple sources. Results in a moment.`,
-          },
-        ]);
       } catch (err) {
         setIsBusy(false);
         setStatusError(err instanceof Error ? err.message : "Failed to create session");
@@ -212,12 +223,13 @@ export function SessionScreen() {
     setIsBusy(true);
     try {
       await postMessage(activeSessionId, text);
+      connectStream(activeSessionId);
       queryClient.invalidateQueries({ queryKey: ["sessions"] });
     } catch (err) {
       setIsBusy(false);
       setStatusError(err instanceof Error ? err.message : "Failed to send message");
     }
-  }, [inputValue, isBusy, activeSessionId, setActiveSessionId, queryClient]);
+  }, [inputValue, isBusy, activeSessionId, activeActivityId, streamState.activity, setActiveSessionId, queryClient, connectStream, startNewActivity]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -261,7 +273,8 @@ export function SessionScreen() {
           .filter((s) => s.session_id !== activeSessionId)
           .slice(0, 8)
           .map((session) => (
-            <div
+            <button
+              type="button"
               key={session.session_id}
               className={`sidebar-item${session.session_id === activeSessionId ? " active" : ""}`}
               onClick={() => handleSelectSession(session)}
@@ -269,18 +282,19 @@ export function SessionScreen() {
               <IconMessageCircle size={15} />
               <span className="item-text">{truncate(session.raw_input, 28)}</span>
               <StatusBadge status={session.status} />
-            </div>
+            </button>
           ))}
 
         <div style={{ flex: 1 }} />
-        <div
+        <button
+          type="button"
           className="sidebar-item"
           onClick={handleNewSession}
           style={{ marginTop: "auto", cursor: "pointer" }}
         >
           <IconPlus size={15} />
           <span className="item-text">New session</span>
-        </div>
+        </button>
       </aside>
 
       {/* ── Chat main ── */}
@@ -330,13 +344,20 @@ export function SessionScreen() {
         {/* Messages */}
         <div className="messages">
           {chatMessages.map((msg, i) => (
-            <MessageBubble key={i} message={msg} />
+            <div key={i} className={`chat-turn chat-turn-${msg.role}`}>
+              <MessageBubble message={msg} />
+              {msg.role === "user" && msg.activityId && (
+                <ActivityBubble
+                  mode={msg.activityKind}
+                  timeline={activitySnapshots[msg.activityId] ?? (msg.activityId === activeActivityId ? streamState.activity : createInitialActivityState())}
+                  thinkingEnabled={msg.activityId === activeActivityId && streamState.thinkingEnabled}
+                  onThinkingEnabledChange={msg.activityId === activeActivityId ? setThinkingEnabled : undefined}
+                />
+              )}
+            </div>
           ))}
           <div ref={messagesEndRef} />
         </div>
-
-        {/* Pipeline stepper */}
-        {showStepper && <PipelineStepper steps={pipelineSteps} />}
 
         {/* Input */}
         <div className="chat-input-area">
@@ -375,6 +396,15 @@ export function SessionScreen() {
       </div>
     </div>
   );
+}
+
+function ActivityBubble({
+  mode,
+  timeline,
+  thinkingEnabled,
+  onThinkingEnabledChange,
+}: React.ComponentProps<typeof ActivityTimeline>) {
+  return <div className="activity-message-bubble"><ActivityTimeline mode={mode} timeline={timeline} thinkingEnabled={thinkingEnabled} onThinkingEnabledChange={onThinkingEnabledChange} /></div>;
 }
 
 // Small status badge for sidebar

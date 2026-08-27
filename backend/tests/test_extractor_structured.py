@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 
+import httpx
 from pydantic import BaseModel
 
 from factcheck.llm.extractor_structured import (
@@ -55,6 +56,20 @@ class FakeFallbackLlm:
         return await self.plain.ainvoke(messages)
 
 
+class TransientTransportLlm:
+    def __init__(self):
+        self.plain = FakePlainInvoker(
+            [httpx.ConnectError("Ollama unavailable"),
+             '{"is_complete_declarative": true, "reasoning": "recovered"}']
+        )
+
+    def with_structured_output(self, output_class, **kwargs):
+        raise AssertionError("plain JSON should succeed after transport retry")
+
+    async def ainvoke(self, messages):
+        return await self.plain.ainvoke(messages)
+
+
 def test_repair_json_string_values_fixes_unescaped_reasoning_quotes() -> None:
     broken = (
         '{"is_complete_declarative": true, "reasoning": "The sentence "The Earth is round" is factual"}'
@@ -78,6 +93,19 @@ async def test_extractor_structured_plain_json_primary() -> None:
 
     assert result == DemoOutput(is_complete_declarative=True, reasoning="complete sentence")
     assert llm.plain.calls == 1
+
+
+async def test_extractor_structured_retries_transient_transport_failure() -> None:
+    llm = TransientTransportLlm()
+
+    result = await call_extractor_structured_output(
+        llm=llm,
+        output_class=DemoOutput,
+        messages=[("human", "validate")],
+    )
+
+    assert result == DemoOutput(is_complete_declarative=True, reasoning="recovered")
+    assert llm.plain.calls == 2
 
 
 async def test_extractor_structured_uses_json_mode_fallback() -> None:

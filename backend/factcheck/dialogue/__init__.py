@@ -32,6 +32,7 @@ from factcheck.dialogue.schemas import (
     DialogueState,
     DialogueTurn,
 )
+from factcheck.graph.event_bus import event_scope
 
 logger = logging.getLogger(__name__)
 
@@ -102,7 +103,8 @@ async def run_dialogue(
     try:
         from factcheck.dialogue.graph import dialogue_graph
 
-        result_state: DialogueState = await dialogue_graph.ainvoke(initial_state)
+        with event_scope(session_id, agent="dialogue", stage="response"):
+            result_state: DialogueState = await dialogue_graph.ainvoke(initial_state)
     except Exception as exc:
         logger.error("[dialogue][run_dialogue] Graph error: %s", exc)
         return DialogueOutput(

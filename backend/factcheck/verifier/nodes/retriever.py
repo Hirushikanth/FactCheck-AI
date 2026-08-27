@@ -8,6 +8,7 @@ import re
 from urllib.parse import urlsplit, urlunsplit
 
 from factcheck.config import AppSettings, get_settings
+from factcheck.graph.event_bus import current_event_context, push_search_progress
 from factcheck.http.pinned_fetch import (
     DEFAULT_FETCH_TIMEOUT_SECONDS,
     fetch_html_pinned,
@@ -109,20 +110,57 @@ def _active_queries(state: VerifierState) -> list[str]:
     return []
 
 
-async def _search_all_queries(queries: list[str]) -> list[SearchHit]:
+async def _search_all_queries(
+    queries: list[str],
+    *,
+    session_id: str | None = None,
+    claim_index: int = 0,
+) -> list[SearchHit]:
     """Run searches for all queries in parallel and merge hits."""
     if not queries:
         return []
 
+    async def search_one(query_index: int, query: str):
+        if session_id:
+            await push_search_progress(
+                session_id,
+                claim_index=claim_index,
+                query_index=query_index,
+                total_queries=len(queries),
+                status="started",
+            )
+        try:
+            result = await search_with_fallback(query)
+        except Exception:
+            if session_id:
+                await push_search_progress(
+                    session_id,
+                    claim_index=claim_index,
+                    query_index=query_index,
+                    total_queries=len(queries),
+                    status="failed",
+                )
+            return None
+        if session_id:
+            hits, provider_name = result
+            await push_search_progress(
+                session_id,
+                claim_index=claim_index,
+                query_index=query_index,
+                total_queries=len(queries),
+                provider=provider_name,
+                status="completed",
+                result_count=len(hits),
+            )
+        return result
+
     results = await asyncio.gather(
-        *[search_with_fallback(query) for query in queries],
-        return_exceptions=True,
+        *[search_one(index, query) for index, query in enumerate(queries)],
     )
 
     merged: list[SearchHit] = []
     for result in results:
-        if isinstance(result, Exception):
-            logger.warning("[retriever] Search failed: %s", result)
+        if result is None:
             continue
         hits, _provider_name = result
         merged.extend(hits)
@@ -142,7 +180,12 @@ async def retriever_node(
     if not queries or state.estimated_evidence_tokens >= state.max_evidence_tokens:
         return {"evidence": [], "estimated_evidence_tokens": state.estimated_evidence_tokens}
 
-    hits = await _search_all_queries(queries)
+    context = current_event_context()
+    hits = await _search_all_queries(
+        queries,
+        session_id=context.session_id if context else None,
+        claim_index=context.claim_index or 0 if context else 0,
+    )
 
     existing_urls = {_normalized_url(item.url) for item in state.evidence}
     deduped_hits: list[SearchHit] = []

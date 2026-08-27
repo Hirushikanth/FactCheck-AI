@@ -12,7 +12,10 @@ from typing import TypeVar
 from langchain_core.language_models.chat_models import BaseChatModel
 from pydantic import BaseModel, ValidationError
 
+from factcheck.config import get_settings
+from factcheck.graph.event_bus import on_ollama_retry
 from factcheck.llm.concurrency import get_ollama_semaphore
+from factcheck.llm.retry import invoke_with_ollama_retry
 from factcheck.llm.structured import MessageLike, _message_text, _parse_json_object
 
 
@@ -87,13 +90,26 @@ def _validate_parsed(output_class: type[M], parsed: dict[str, object]) -> M:
     return output_class.model_validate(parsed)
 
 
+async def _invoke_remote(operation):
+    """Invoke one remote call, keeping semaphore ownership per attempt."""
+
+    async def attempt():
+        async with get_ollama_semaphore():
+            return await operation()
+
+    return await invoke_with_ollama_retry(
+        attempt,
+        max_attempts=get_settings().ollama_max_retries,
+        on_retry=on_ollama_retry,
+    )
+
+
 async def _plain_json_invoke(
     llm: BaseChatModel,
     messages: Sequence[MessageLike],
     output_class: type[M],
 ) -> M | None:
-    async with get_ollama_semaphore():
-        response = await llm.ainvoke(list(messages))
+    response = await _invoke_remote(lambda: llm.ainvoke(list(messages)))
     text = _message_text(response)
     parsed = _parse_with_repair(text)
     if parsed is None:
@@ -106,8 +122,9 @@ async def _json_mode_invoke(
     messages: Sequence[MessageLike],
     output_class: type[M],
 ) -> M | None:
-    async with get_ollama_semaphore():
-        response = await _structured_llm(llm, output_class).ainvoke(list(messages))
+    response = await _invoke_remote(
+        lambda: _structured_llm(llm, output_class).ainvoke(list(messages))
+    )
     if response is None:
         return None
     return response

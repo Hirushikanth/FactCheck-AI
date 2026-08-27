@@ -6,7 +6,7 @@ import asyncio
 import logging
 
 from factcheck.extractor.schemas import ValidatedClaim
-from factcheck.graph.event_bus import push_event
+from factcheck.graph.event_bus import event_scope, push_agent_progress, push_event
 from factcheck.state import ClaimResult, FactCheckState
 from factcheck.verifier import run_verifier
 from factcheck.verifier.utils.claim_result import build_claim_result, is_processing_error
@@ -40,6 +40,15 @@ def _make_error_result(claim: ValidatedClaim | str, exc: Exception) -> ClaimResu
     )
 
 
+def _verdict_degraded_reason(result: ClaimResult) -> str | None:
+    status = result.get("processing_status")
+    if status == "error":
+        return "Verification failed; evidence was insufficient."
+    if status == "degraded":
+        return "Verification completed in degraded mode."
+    return None
+
+
 async def _verify_single_claim(claim: ValidatedClaim | str) -> ClaimResult:
     """Verify one claim, returning an error result on failure."""
     try:
@@ -60,7 +69,22 @@ async def _verify_single_claim_with_event(
     total: int,
 ) -> ClaimResult:
     """Verify one claim and push an SSE event when done."""
-    result = await _verify_single_claim(claim)
+    await push_agent_progress(
+        session_id,
+        agent="verifier",
+        stage="claim_verification",
+        status="started",
+        message=f"Checking claim {index + 1} of {total}.",
+    )
+    with event_scope(
+        session_id,
+        agent="verifier",
+        stage="claim_verification",
+        claim_index=index,
+    ):
+        result = await _verify_single_claim(claim)
+    processing_status = result.get("processing_status")
+    degraded_reason = _verdict_degraded_reason(result)
     await push_event(
         session_id,
         "verdict_ready",
@@ -70,8 +94,26 @@ async def _verify_single_claim_with_event(
             "confidence": result["confidence"],
             "index": index,
             "total": total,
+            "processing_status": processing_status or "ok",
+            **({"degraded_reason": degraded_reason} if degraded_reason else {}),
         },
     )
+    if processing_status in {"error", "degraded"}:
+        await push_agent_progress(
+            session_id,
+            agent="verifier",
+            stage="claim_verification",
+            status="degraded",
+            message=degraded_reason or "Verification completed in degraded mode.",
+        )
+    else:
+        await push_agent_progress(
+            session_id,
+            agent="verifier",
+            stage="claim_verification",
+            status="completed",
+            message=f"Claim {index + 1} — {result['verdict'].replace('_', ' ').lower()}.",
+        )
     return result
 
 

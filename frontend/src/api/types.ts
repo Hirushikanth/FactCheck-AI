@@ -30,12 +30,15 @@ export interface FactCheckRunSummary {
   status: string;
   triggered_by: RunTrigger;
   created_at: number;
+  activity_events: Array<{ type: string; data: Record<string, unknown> }>;
 }
 
 export interface DialogueMessage {
+  id: number;
   role: "user" | "assistant";
   content: string;
   created_at: number;
+  activity_events: Array<{ type: string; data: Record<string, unknown> }>;
 }
 
 export interface SessionSummary {
@@ -82,6 +85,32 @@ export interface SseAgentStart {
   timestamp: string;
 }
 
+export interface SseAgentProgress {
+  agent: "extractor" | "verifier" | "reporter" | "dialogue";
+  stage: string;
+  status: "started" | "retrying" | "completed" | "degraded";
+  attempt?: number;
+  max_attempts?: number;
+  message: string;
+}
+
+export interface SseSearchProgress {
+  claim_index: number;
+  query_index: number;
+  total_queries: number;
+  provider?: string;
+  status: "started" | "completed" | "failed";
+  result_count?: number;
+}
+
+export interface SseThinkingChunk {
+  agent: "extractor" | "verifier" | "reporter" | "dialogue";
+  stage: string;
+  claim_index?: number;
+  text: string;
+  truncated?: boolean;
+}
+
 export interface SseClaimFound {
   claim: string;
   index: number;
@@ -94,6 +123,8 @@ export interface SseVerdictReady {
   confidence: number;
   index: number;
   total: number;
+  processing_status?: "ok" | "error" | "degraded";
+  degraded_reason?: string;
 }
 
 export interface SseReportReady {
@@ -106,7 +137,8 @@ export interface SsePipelineDone {
 }
 
 export interface SsePipelineError {
-  error: string;
+  error?: string;
+  reason?: string;
   agent: string;
 }
 

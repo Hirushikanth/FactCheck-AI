@@ -12,7 +12,10 @@ from typing import TypeVar
 from langchain_core.language_models.chat_models import BaseChatModel
 from pydantic import BaseModel, ValidationError
 
+from factcheck.config import get_settings
+from factcheck.graph.event_bus import on_ollama_retry
 from factcheck.llm.concurrency import get_ollama_semaphore
+from factcheck.llm.retry import invoke_with_ollama_retry
 
 
 logger = logging.getLogger(__name__)
@@ -54,6 +57,20 @@ def _structured_llm(llm: BaseChatModel, output_class: type[M]):
     return llm.with_structured_output(output_class, method="json_mode")
 
 
+async def _invoke_remote(operation):
+    """Invoke one remote call, keeping semaphore ownership per attempt."""
+
+    async def attempt():
+        async with get_ollama_semaphore():
+            return await operation()
+
+    return await invoke_with_ollama_retry(
+        attempt,
+        max_attempts=get_settings().ollama_max_retries,
+        on_retry=on_ollama_retry,
+    )
+
+
 async def call_llm_with_structured_output(
     *,
     llm: BaseChatModel,
@@ -64,8 +81,9 @@ async def call_llm_with_structured_output(
     """Call a chat model and parse its response into a Pydantic model."""
 
     try:
-        async with get_ollama_semaphore():
-            response = await _structured_llm(llm, output_class).ainvoke(list(messages))
+        response = await _invoke_remote(
+            lambda: _structured_llm(llm, output_class).ainvoke(list(messages))
+        )
         if response is None:
             raise ValueError("structured output returned None")
         return response
@@ -81,8 +99,9 @@ async def call_llm_with_structured_output(
         )
     ]
     try:
-        async with get_ollama_semaphore():
-            response = await _structured_llm(llm, output_class).ainvoke(retry_messages)
+        response = await _invoke_remote(
+            lambda: _structured_llm(llm, output_class).ainvoke(retry_messages)
+        )
         if response is None:
             raise ValueError("structured output retry returned None")
         return response
@@ -103,8 +122,9 @@ async def call_llm_with_structured_output(
             )
         ]
         try:
-            async with get_ollama_semaphore():
-                diagnostic_response = await llm.ainvoke(fallback_messages)
+            diagnostic_response = await _invoke_remote(
+                lambda: llm.ainvoke(fallback_messages)
+            )
             diagnostic_text = _message_text(diagnostic_response)
             diagnostic_json = _parse_json_object(diagnostic_text)
             if diagnostic_json is None:

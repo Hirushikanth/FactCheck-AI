@@ -140,7 +140,7 @@ async def _trigger_new_factcheck(
         claim_text,
         "dialogue",
     )
-    create_session_hub(session_id, run_id=run_id)
+    create_session_hub(session_id, run_id=run_id, persist_events=True)
     try:
         result = await run_factcheck_with_events(
             session_id=session_id,

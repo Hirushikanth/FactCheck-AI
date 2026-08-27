@@ -9,7 +9,7 @@ import {
 } from "@tabler/icons-react";
 import { listSessions, getSession } from "../api/client";
 import type { SessionSummary } from "../api/types";
-import { useApp } from "../App";
+import { useApp } from "../app-context";
 import { VerdictBadge } from "../components/VerdictBadge";
 import { formatTimestamp, truncate } from "../lib/format";
 

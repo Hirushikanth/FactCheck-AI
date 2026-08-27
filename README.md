@@ -2,7 +2,7 @@
 
 FactCheck AI is a locally deployed, conversational fact-checking system for a final year software engineering project. It accepts natural-language text, decomposes it into atomic claims, retrieves web evidence, and returns evidence-grounded verdicts with confidence scores, explanations, and source URLs.
 
-The backend runs a LangGraph multi-agent pipeline behind a FastAPI API layer, with local LLM inference through Ollama and SQLite session persistence. A production React frontend is planned but not yet implemented.
+The backend runs a LangGraph multi-agent pipeline behind a FastAPI API layer, with local LLM inference through Ollama and SQLite session persistence. The shipped React/Vite frontend provides session submission, live SSE pipeline activity, results, and history views.
 
 ## Implementation Status
 
@@ -15,7 +15,7 @@ The backend runs a LangGraph multi-agent pipeline behind a FastAPI API layer, wi
 | Orchestrator + LangGraph pipeline | Implemented |
 | SQLite session persistence | Implemented |
 | REST API + SSE streaming | Implemented |
-| React TypeScript frontend | Planned |
+| React TypeScript frontend | Implemented |
 
 ## Prerequisites
 
@@ -24,7 +24,7 @@ The backend runs a LangGraph multi-agent pipeline behind a FastAPI API layer, wi
 - Git
 - Ollama with `gemma4`
 
-Node.js 20+ is checked by `./scripts/verify_toolchain.sh` for the planned frontend; it is not required to run the backend today.
+Node.js 20+ is checked by `./scripts/verify_toolchain.sh` for the frontend; it is not required to run the backend alone.
 
 Verify the local toolchain:
 
@@ -101,6 +101,20 @@ poetry run uvicorn app.main:app --reload
 
 The server runs at `http://localhost:8000`.
 
+## Frontend Quick Start
+
+With the backend running, start the React/Vite frontend in a second terminal:
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Open `http://localhost:5173`. Vite proxies `/api` requests to the backend at
+`http://localhost:8000`; update the proxy in `frontend/vite.config.ts` if the
+backend runs elsewhere.
+
 ## API Usage
 
 Health check:
@@ -173,6 +187,15 @@ Run the full test suite:
 ```bash
 cd backend
 poetry run pytest
+```
+
+Run the frontend quality checks:
+
+```bash
+cd frontend
+npm run test
+npm run lint
+npm run build
 ```
 
 Run optional Ollama-backed integration tests (requires a running Ollama instance):
