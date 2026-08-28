@@ -37,7 +37,7 @@ The React frontend is planned. Today, clients interact with the FastAPI layer di
 The system contains five specialized agents:
 
 - **Orchestrator Agent**: marks the pipeline as running before agent execution begins.
-- **Extractor Agent**: decomposes raw text into atomic, verifiable claims via a Claimify-style subgraph.
+- **Extractor Agent**: decomposes raw text into atomic, verifiable claims via a sequential multi-stage subgraph.
 - **Verifier Agent**: retrieves web evidence and produces per-claim verdicts. All claims are verified in parallel; each completion emits a `verdict_ready` SSE event.
 - **Reporter Agent**: consolidates claim results into a human-readable markdown report.
 - **Dialogue Agent**: answers follow-up questions from session evidence only. Runs outside the main pipeline on demand when a follow-up message arrives.
@@ -63,7 +63,7 @@ The dialogue agent is a separate LangGraph invoked when a user posts a follow-up
 
 ## Extractor Subgraph
 
-The extractor is a sequential LangGraph subgraph adapted from ClaimeAI's Claimify-style approach:
+The extractor is a sequential LangGraph subgraph with six stages:
 
 ```mermaid
 flowchart LR

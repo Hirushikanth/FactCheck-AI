@@ -8,7 +8,7 @@ The backend runs a LangGraph multi-agent pipeline behind a FastAPI API layer, wi
 
 | Component | Status |
 |---|---|
-| Extractor agent (Claimify-style subgraph) | Implemented |
+| Extractor agent (multi-stage subgraph) | Implemented |
 | Verifier agent (parallel per-claim, BM25 ranking, domain credibility tiers) | Implemented |
 | Reporter agent | Implemented |
 | Dialogue agent (follow-up questions) | Implemented |
@@ -283,7 +283,7 @@ Open `http://localhost:8080`. Ensure `DEV_CORS_ORIGINS` in `backend/.env` includ
 │       ├── config.py                # AppSettings from .env
 │       ├── db/                      # SQLite session store
 │       ├── dialogue/                # follow-up dialogue graph
-│       ├── extractor/               # Claimify-style subgraph
+│       ├── extractor/               # multi-stage claim extractor subgraph
 │       ├── graph/                   # pipeline runner + SSE event hub
 │       ├── llm/                     # Ollama factory + structured output
 │       ├── reporter/                # report generation
