@@ -313,6 +313,7 @@ async def test_evidence_evaluator_maps_supported_output_to_claim_result(monkeypa
         "verdict": "SUPPORTED",
         "confidence": 0.88,
         "evidence": ["Related evidence.", "Direct evidence."],
+        "dialogue_evidence": ["Direct evidence."],
         "sources": ["https://first.example", "https://second.example"],
         "reasoning": "Two sources directly support the claim.",
         "search_queries": ["earth oblate spheroid"],

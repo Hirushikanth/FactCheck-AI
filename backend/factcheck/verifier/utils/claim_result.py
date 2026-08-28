@@ -3,11 +3,26 @@
 from __future__ import annotations
 
 from factcheck.state import ClaimResult, ProcessingStatus, Verdict
+from factcheck.verifier.config import (
+    MAX_DIALOGUE_EVIDENCE_ITEMS,
+    MAX_DIALOGUE_EVIDENCE_WORDS,
+)
 from factcheck.verifier.schemas import VerifierState
+from factcheck.verifier.utils import truncate_snippet
 
 
 def _clamp_confidence(confidence: float) -> float:
     return max(0.0, min(1.0, confidence))
+
+
+def _dialogue_evidence(state: VerifierState) -> list[str]:
+    """Select and word-cap the verifier evidence safe for dialogue context."""
+    influential = [item for item in state.evidence if item.is_influential]
+    selected = (influential or state.evidence)[:MAX_DIALOGUE_EVIDENCE_ITEMS]
+    return [
+        truncate_snippet(item.snippet, max_words=MAX_DIALOGUE_EVIDENCE_WORDS)
+        for item in selected
+    ]
 
 
 def build_claim_result(
@@ -53,7 +68,7 @@ def build_claim_result_from_state(
     processing_error: str | None = None,
 ) -> ClaimResult:
     """Build a ClaimResult from verifier subgraph state."""
-    return build_claim_result(
+    result = build_claim_result(
         claim=state.claim_text,
         verdict=verdict,
         confidence=confidence,
@@ -66,6 +81,8 @@ def build_claim_result_from_state(
         processing_status=processing_status,
         processing_error=processing_error,
     )
+    result["dialogue_evidence"] = _dialogue_evidence(state)
+    return result
 
 
 def is_processing_error(result: ClaimResult) -> bool:

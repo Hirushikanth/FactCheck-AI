@@ -10,7 +10,11 @@ from __future__ import annotations
 
 import logging
 
-from factcheck.dialogue.prompts import compress_factcheck_context, compress_factcheck_runs
+from factcheck.dialogue.prompts import (
+    cap_factcheck_context,
+    compress_factcheck_context,
+    compress_factcheck_runs,
+)
 from factcheck.dialogue.schemas import DialogueState
 from factcheck.dialogue.utils.tokens import estimate_tokens
 
@@ -24,6 +28,9 @@ async def init_context_node(state: DialogueState) -> dict:
     latest = state.get("_latest_run_sequence", 0)
 
     if cached and covers is not None and covers >= latest:
+        capped = cap_factcheck_context(cached)
+        if capped != cached:
+            return {"_compressed_fc_context": capped}
         return {}
 
     runs = state.get("fact_check_runs") or []

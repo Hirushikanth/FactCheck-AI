@@ -1,13 +1,15 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   IconSearch,
   IconFilter,
   IconCalendar,
   IconChevronRight,
   IconShieldQuestion,
+  IconTrash,
+  IconAlertTriangle,
 } from "@tabler/icons-react";
-import { listSessions, getSession } from "../api/client";
+import { listSessions, getSession, deleteSession } from "../api/client";
 import type { SessionSummary } from "../api/types";
 import { useApp } from "../app-context";
 import { VerdictBadge } from "../components/VerdictBadge";
@@ -17,14 +19,42 @@ type FilterVerdict = "all" | "running" | "done" | "error";
 
 export function HistoryScreen() {
   const { setActiveSessionId, setActiveSession, setActiveTab } = useApp();
+  const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
   const [filterStatus, setFilterStatus] = useState<FilterVerdict>("all");
+  const [pendingDelete, setPendingDelete] = useState<SessionSummary | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const { data: sessions = [], isLoading } = useQuery<SessionSummary[]>({
     queryKey: ["sessions"],
     queryFn: listSessions,
     refetchInterval: 10_000,
   });
+
+  async function confirmDelete() {
+    if (!pendingDelete) return;
+    setIsDeleting(true);
+    try {
+      await deleteSession(pendingDelete.session_id);
+      queryClient.invalidateQueries({ queryKey: ["sessions"] });
+      setPendingDelete(null);
+    } catch {
+      // keep the dialog open so the user can retry
+    } finally {
+      setIsDeleting(false);
+    }
+  }
+
+  async function handleRowClick(session: SessionSummary) {
+    setActiveSessionId(session.session_id);
+    try {
+      const detail = await getSession(session.session_id);
+      setActiveSession(detail);
+    } catch {
+      // ignore — Results screen will fetch on its own
+    }
+    setActiveTab("results");
+  }
 
   const filtered = sessions.filter((s) => {
     const matchesSearch =
@@ -40,17 +70,6 @@ export function HistoryScreen() {
   const done = sessions.filter((s) => s.status === "done").length;
   const running = sessions.filter((s) => s.status === "running").length;
   const errored = sessions.filter((s) => s.status === "error").length;
-
-  async function handleRowClick(session: SessionSummary) {
-    setActiveSessionId(session.session_id);
-    try {
-      const detail = await getSession(session.session_id);
-      setActiveSession(detail);
-    } catch {
-      // ignore — Results screen will fetch on its own
-    }
-    setActiveTab("results");
-  }
 
   return (
     <div className="history-layout">
@@ -115,9 +134,60 @@ export function HistoryScreen() {
               key={session.session_id}
               session={session}
               onClick={() => handleRowClick(session)}
+              onDelete={() => setPendingDelete(session)}
             />
           ))
         )}
+      </div>
+
+      {pendingDelete && (
+        <ConfirmDeleteDialog
+          claim={pendingDelete.raw_input}
+          isDeleting={isDeleting}
+          onCancel={() => !isDeleting && setPendingDelete(null)}
+          onConfirm={confirmDelete}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── Confirm delete dialog ─────────────────────────────────────────────────────
+function ConfirmDeleteDialog({
+  claim,
+  isDeleting,
+  onCancel,
+  onConfirm,
+}: {
+  claim: string;
+  isDeleting: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <div className="modal-overlay" onClick={onCancel}>
+      <div className="confirm-dialog" onClick={(e) => e.stopPropagation()}>
+        <div className="confirm-dialog-icon">
+          <IconAlertTriangle size={22} stroke={1.6} />
+        </div>
+        <h3 className="confirm-dialog-title">Delete this chat?</h3>
+        <p className="confirm-dialog-text">
+          This will permanently remove the fact-check and its conversation from
+          your history. This action cannot be undone.
+        </p>
+        <div className="confirm-dialog-claim">{claim}</div>
+        <div className="confirm-dialog-actions">
+          <button className="btn-ghost" onClick={onCancel} disabled={isDeleting}>
+            Cancel
+          </button>
+          <button
+            className="btn-danger"
+            onClick={onConfirm}
+            disabled={isDeleting}
+          >
+            {isDeleting ? "Deleting…" : "Delete chat"}
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -127,9 +197,11 @@ export function HistoryScreen() {
 function HistoryRow({
   session,
   onClick,
+  onDelete,
 }: {
   session: SessionSummary;
   onClick: () => void;
+  onDelete: () => void;
 }) {
   const verdictBadge =
     session.status === "running"
@@ -150,6 +222,17 @@ function HistoryRow({
         </div>
       </div>
       <div className="history-right">
+        <button
+          className="row-delete-btn"
+          aria-label="Delete chat"
+          title="Delete chat"
+          onClick={(e) => {
+            e.stopPropagation();
+            onDelete();
+          }}
+        >
+          <IconTrash size={15} />
+        </button>
         <IconChevronRight
           size={14}
           style={{ color: "var(--color-text-tertiary)" }}

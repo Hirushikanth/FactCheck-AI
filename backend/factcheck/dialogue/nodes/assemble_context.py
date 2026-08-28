@@ -24,7 +24,11 @@ from factcheck.dialogue.config import (
     SLIDING_WINDOW_MAX_TURNS,
     SYSTEM_PROMPT_TOKENS,
 )
-from factcheck.dialogue.prompts import build_generator_messages, build_session_context_extras
+from factcheck.dialogue.prompts import (
+    build_generator_messages,
+    build_session_context_extras,
+    cap_factcheck_context,
+)
 from factcheck.dialogue.schemas import DialogueState
 from factcheck.dialogue.utils.tokens import (
     estimate_tokens,
@@ -46,6 +50,7 @@ async def assemble_context_node(state: DialogueState) -> dict:
     )
     if extras:
         fc_context = f"{fc_context}\n\n{extras}" if fc_context else extras
+    fc_context = cap_factcheck_context(fc_context)
 
     summary_text: str = (state.get("conversation_summary") or {}).get("text", "")
 

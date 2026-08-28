@@ -13,8 +13,10 @@ import {
   IconDownload,
   IconAlertCircle,
   IconLayoutSidebar,
+  IconTrash,
+  IconAlertTriangle,
 } from "@tabler/icons-react";
-import { createSession, getSession, listSessions, postMessage } from "../api/client";
+import { createSession, getSession, listSessions, postMessage, deleteSession } from "../api/client";
 import type { SessionDetail, SessionSummary } from "../api/types";
 import { useApp } from "../app-context";
 import { useSessionStream } from "../hooks/useSessionStream";
@@ -96,6 +98,27 @@ export function SessionScreen() {
     queryFn: listSessions,
     refetchInterval: 5_000,
   });
+
+  const [pendingDelete, setPendingDelete] = useState<SessionSummary | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  async function confirmDelete() {
+    if (!pendingDelete) return;
+    setIsDeleting(true);
+    try {
+      await deleteSession(pendingDelete.session_id);
+      queryClient.invalidateQueries({ queryKey: ["sessions"] });
+      if (pendingDelete.session_id === activeSessionId) {
+        setActiveSessionId(null);
+        setActiveSession(null);
+      }
+      setPendingDelete(null);
+    } catch {
+      // keep dialog open so the user can retry
+    } finally {
+      setIsDeleting(false);
+    }
+  }
 
   // SSE for active session
   const { state: streamState, setThinkingEnabled, connectStream, startNewActivity } = useSessionStream(activeSessionId, {
@@ -207,13 +230,18 @@ export function SessionScreen() {
 
     if (!activeSessionId) {
       setIsBusy(true);
+      const sessionId = crypto.randomUUID();
+      setActiveSessionId(sessionId);
       try {
-        const result = await createSession(text);
-        setActiveSessionId(result.session_id);
+        const result = await createSession(text, sessionId);
+        if (result.session_id !== sessionId) {
+          throw new Error("Session ID mismatch");
+        }
         queryClient.invalidateQueries({ queryKey: ["sessions"] });
 
       } catch (err) {
         setIsBusy(false);
+        setActiveSessionId(null);
         setStatusError(err instanceof Error ? err.message : "Failed to create session");
       }
       return;
@@ -260,6 +288,19 @@ export function SessionScreen() {
                 30
               )}
             </span>
+            <button
+              type="button"
+              className="sidebar-delete-btn"
+              aria-label="Delete chat"
+              title="Delete chat"
+              onClick={(e) => {
+                e.stopPropagation();
+                const current = sessions.find((s) => s.session_id === activeSessionId);
+                if (current) setPendingDelete(current);
+              }}
+            >
+              <IconTrash size={14} />
+            </button>
           </div>
         ) : (
           <div className="sidebar-item" style={{ color: "var(--color-text-tertiary)" }}>
@@ -282,6 +323,18 @@ export function SessionScreen() {
               <IconMessageCircle size={15} />
               <span className="item-text">{truncate(session.raw_input, 28)}</span>
               <StatusBadge status={session.status} />
+              <button
+                type="button"
+                className="sidebar-delete-btn"
+                aria-label="Delete chat"
+                title="Delete chat"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setPendingDelete(session);
+                }}
+              >
+                <IconTrash size={14} />
+              </button>
             </button>
           ))}
 
@@ -392,6 +445,56 @@ export function SessionScreen() {
               <IconArrowUp size={13} stroke={2.5} />
             </button>
           </div>
+        </div>
+      </div>
+
+      {pendingDelete && (
+        <ConfirmDeleteDialog
+          claim={pendingDelete.raw_input}
+          isDeleting={isDeleting}
+          onCancel={() => !isDeleting && setPendingDelete(null)}
+          onConfirm={confirmDelete}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── Confirm delete dialog ─────────────────────────────────────────────────────
+function ConfirmDeleteDialog({
+  claim,
+  isDeleting,
+  onCancel,
+  onConfirm,
+}: {
+  claim: string;
+  isDeleting: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <div className="modal-overlay" onClick={onCancel}>
+      <div className="confirm-dialog" onClick={(e) => e.stopPropagation()}>
+        <div className="confirm-dialog-icon">
+          <IconAlertTriangle size={22} stroke={1.6} />
+        </div>
+        <h3 className="confirm-dialog-title">Delete this chat?</h3>
+        <p className="confirm-dialog-text">
+          This will permanently remove the fact-check and its conversation from
+          your history. This action cannot be undone.
+        </p>
+        <div className="confirm-dialog-claim">{claim}</div>
+        <div className="confirm-dialog-actions">
+          <button className="btn-ghost" onClick={onCancel} disabled={isDeleting}>
+            Cancel
+          </button>
+          <button
+            className="btn-danger"
+            onClick={onConfirm}
+            disabled={isDeleting}
+          >
+            {isDeleting ? "Deleting…" : "Delete chat"}
+          </button>
         </div>
       </div>
     </div>

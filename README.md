@@ -8,7 +8,7 @@ The backend runs a LangGraph multi-agent pipeline behind a FastAPI API layer, wi
 
 | Component | Status |
 |---|---|
-| Extractor agent (Claimify-style subgraph) | Implemented |
+| Extractor agent (multi-stage subgraph) | Implemented |
 | Verifier agent (parallel per-claim, BM25 ranking, domain credibility tiers) | Implemented |
 | Reporter agent | Implemented |
 | Dialogue agent (follow-up questions) | Implemented |
@@ -72,6 +72,10 @@ Copy `backend/.env.example` to `backend/.env` and adjust as needed. All variable
 | `OLLAMA_CONCURRENCY` | `1` | Max concurrent Ollama requests |
 | `SEARCH_MAX_RESULTS` | `5` | Search result cap per query |
 | `SEARCH_PROVIDER_ORDER` | `duckduckgo,tavily,serper` | Provider fallback chain |
+| `SEARCH_API_MAX_RETRIES` | `3` | Tavily/Serper total attempts |
+| `SEARCH_API_RETRY_BASE_DELAY` | `1.0` | Tavily/Serper backoff base (seconds) |
+| `SEARCH_API_RETRY_MAX_DELAY` | `8.0` | Tavily/Serper backoff ceiling (seconds) |
+| `SEARCH_API_TIMEOUT_SECONDS` | `30.0` | Tavily/Serper request timeout (seconds) |
 | `DDG_MAX_RETRIES` | `3` | DuckDuckGo retry count |
 | `DDG_RETRY_BASE_DELAY` | `1.0` | DDG retry backoff base (seconds) |
 | `DDG_RETRY_MAX_DELAY` | `8.0` | DDG retry backoff max (seconds) |
@@ -79,11 +83,54 @@ Copy `backend/.env.example` to `backend/.env` and adjust as needed. All variable
 | `TAVILY_API_KEY` | (empty) | Optional Tavily search API key |
 | `SERPER_API_KEY` | (empty) | Optional Serper search API key |
 | `FULL_PAGE_FETCH_MODE` | `provider` | Evidence page fetch: `off`, `provider`, or `pinned` |
+| `DEMO_REQUIRE_FALLBACK` | `false` | Require a keyed Tavily/Serper fallback at startup |
 | `DEV_CORS_ORIGINS` | `http://localhost:5173,...` | CORS allowed origins |
 | `SQLITE_PATH` | `factcheck_ai.db` | SQLite database path |
 | `DEBUG` | `false` | Debug flag |
 
 DuckDuckGo is used first and does not require credentials. Tavily and Serper are only attempted when keys are configured.
+
+Keep provider keys only in the local `backend/.env` file. That file must never
+be committed, pasted into tickets, or included in screenshots/logs; use
+`backend/.env.example` only as the key-free template. Set
+`DEMO_REQUIRE_FALLBACK=true` for a demonstration run to make startup fail
+unless at least one keyed provider (`TAVILY_API_KEY` or `SERPER_API_KEY`) is
+included in `SEARCH_PROVIDER_ORDER`. Leave it `false` for deliberate
+DuckDuckGo-only development.
+
+### Examiner demonstration checklist
+
+Use this repeatable path immediately before the demonstration:
+
+1. Copy `backend/.env.example` to `backend/.env`, add a real Tavily or Serper
+   key locally, and set `DEMO_REQUIRE_FALLBACK=true` with
+   `SEARCH_PROVIDER_ORDER=duckduckgo,tavily,serper`.
+2. Run the compliance checks:
+
+   ```bash
+   cd backend
+   poetry run pytest tests/test_search_fallback.py tests/dialogue/test_prompts.py tests/graph/test_thread_isolation.py -q
+   poetry run uvicorn app.main:app --reload
+   ```
+
+3. Start the frontend with `cd frontend && npm run dev`. For each new browser
+   session, the React client creates one UUID with `crypto.randomUUID()` before
+   the initial `POST /api/sessions`. The same `session_id` is sent in the
+   request, returned unchanged by FastAPI, included in SSE events, and reused
+   for every LangGraph fact-check and dialogue invocation.
+4. Temporarily disable network access to DuckDuckGo using the local firewall or
+   network control, submit a claim, and show the activity timeline/logs moving
+   from the DuckDuckGo failure to the keyed Tavily/Serper provider. Restore
+   DuckDuckGo access after the demonstration.
+5. Explain persistence: `SQLITE_PATH` points to the single SQLite database
+   containing the API session tables and LangGraph checkpoint tables. The
+   browser session UUID is the LangGraph `thread_id`, so fact-check and
+   follow-up dialogue checkpoints remain isolated by session. Do not expose the
+   database file or checkpoint contents in the demonstration.
+
+If startup fails while the guard is enabled, check that a non-empty key is
+present in `backend/.env` and that its provider name appears in
+`SEARCH_PROVIDER_ORDER`.
 
 ### Evidence fetch security
 
@@ -140,8 +187,11 @@ Create a session and start the pipeline (returns `202 Accepted`):
 ```bash
 curl -X POST http://localhost:8000/api/sessions \
   -H "Content-Type: application/json" \
-  -d '{"input": "The Earth is round."}'
+  -d '{"input": "The Earth is round.", "session_id": "11111111-1111-4111-8111-111111111111"}'
 ```
+
+The browser-generated UUID is authoritative; the placeholder above is only
+for a manual API smoke test.
 
 Stream SSE progress (use `session_id` from the response above):
 
@@ -233,7 +283,7 @@ Open `http://localhost:8080`. Ensure `DEV_CORS_ORIGINS` in `backend/.env` includ
 │       ├── config.py                # AppSettings from .env
 │       ├── db/                      # SQLite session store
 │       ├── dialogue/                # follow-up dialogue graph
-│       ├── extractor/               # Claimify-style subgraph
+│       ├── extractor/               # multi-stage claim extractor subgraph
 │       ├── graph/                   # pipeline runner + SSE event hub
 │       ├── llm/                     # Ollama factory + structured output
 │       ├── reporter/                # report generation

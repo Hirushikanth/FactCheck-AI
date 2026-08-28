@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import uuid
+import sqlite3
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 from fastapi.responses import StreamingResponse
@@ -77,9 +77,17 @@ async def start_session(
     background_tasks: BackgroundTasks,
 ) -> CreateSessionResponse:
     """Create a new fact-check session and kick off the pipeline in the background."""
-    session_id = str(uuid.uuid4())
+    session_id = str(body.session_id)
 
-    run_id = await asyncio.to_thread(create_session, session_id, body.input)
+    if await asyncio.to_thread(session_exists, session_id):
+        raise HTTPException(status_code=409, detail="Session already exists")
+
+    try:
+        run_id = await asyncio.to_thread(create_session, session_id, body.input)
+    except sqlite3.IntegrityError as exc:
+        # The preflight check avoids normal duplicates; this also closes the
+        # race between concurrent requests using the same browser UUID.
+        raise HTTPException(status_code=409, detail="Session already exists") from exc
     create_session_hub(session_id, run_id=run_id, persist_events=True)
     background_tasks.add_task(_run_and_persist, session_id, run_id, body.input)
 

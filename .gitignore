@@ -120,7 +120,10 @@ frontend/.env.*.local
 dev-console/
 docs/dev/console.md
 
-# --- Local audit notes -----------------------------
+# --- Local planning, audit & development notes --------------------------------
+# These folders hold machine-local agent plans, audit working notes, and reports.
+.superpowers/
+docs/superpowers/
 docs/audit/
 
 # --- IDE / editor ------------------------------------------------------------

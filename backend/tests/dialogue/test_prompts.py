@@ -12,9 +12,11 @@ import pytest
 
 from factcheck.dialogue.prompts import (
     compress_factcheck_context,
+    compress_factcheck_runs,
     needs_rewriting,
     parse_intent,
 )
+from factcheck.dialogue.config import MAX_FC_CONTEXT_TOKENS
 from factcheck.dialogue.utils.tokens import estimate_tokens
 
 
@@ -105,6 +107,77 @@ def test_compress_factcheck_context_no_sources() -> None:
     cr["sources"] = []
     result = compress_factcheck_context([cr])
     assert "No sources listed" in result
+
+
+def test_dialogue_context_prefers_dialogue_evidence_over_full_evidence() -> None:
+    result = {
+        "evidence": ["FULL " * 500],
+        "dialogue_evidence": ["compact proof"],
+        "reasoning": "Reasoning should not replace the projection.",
+    }
+
+    context = compress_factcheck_context([result])
+
+    assert "compact proof" in context
+    assert "FULL" not in context
+
+
+def test_dialogue_context_uses_reasoning_when_projection_is_absent() -> None:
+    context = compress_factcheck_context(
+        [{"reasoning": "Concise verifier reasoning.", "evidence": ["FULL " * 500]}]
+    )
+
+    assert "Concise verifier reasoning." in context
+    assert "FULL" not in context
+
+
+def test_dialogue_context_uses_no_evidence_text_when_projection_and_reasoning_are_absent() -> None:
+    context = compress_factcheck_context([{"evidence": ["FULL " * 500]}])
+
+    assert "No evidence available." in context
+    assert "FULL" not in context
+
+
+def test_compress_factcheck_context_hard_caps_arbitrary_claim_count() -> None:
+    claims = [
+        _make_claim_result(
+            claim=f"Claim {i} " + "important detail " * 50,
+            evidence=[f"Evidence {i} " + "supporting detail " * 50],
+            sources=[f"https://source{i}.example.com/article"],
+        )
+        for i in range(100)
+    ]
+
+    context = compress_factcheck_context(claims)
+
+    assert estimate_tokens(context) <= MAX_FC_CONTEXT_TOKENS
+    assert "=== FACT-CHECK RESULTS (session context) ===" in context
+    assert "=== END OF FACT-CHECK CONTEXT ===" in context
+    assert "[truncated]" in context
+
+
+def test_compress_factcheck_runs_prefers_newest_runs_when_capped() -> None:
+    runs = [
+        {
+            "sequence": sequence,
+            "raw_input": f"Input for run {sequence} " + "long input " * 100,
+            "claim_results": [
+                _make_claim_result(
+                    claim=f"Run {sequence} claim " + "detail " * 50,
+                    evidence=[f"Run {sequence} evidence " + "proof " * 50],
+                )
+                for _ in range(10)
+            ],
+        }
+        for sequence in range(20)
+    ]
+
+    context = compress_factcheck_runs(runs)
+
+    assert estimate_tokens(context) <= MAX_FC_CONTEXT_TOKENS
+    assert "=== FACT-CHECK RUN 19 ===" in context
+    assert "=== END OF FACT-CHECK CONTEXT ===" in context
+    assert "[truncated]" in context
 
 
 # ─────────────────────────────────────────────────────────────────────────────

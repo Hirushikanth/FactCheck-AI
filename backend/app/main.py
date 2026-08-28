@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.routers import dialogue, sessions
 from factcheck.config import AppSettings, get_settings
 from factcheck.db.session_store import ensure_dialogue_tables
+from factcheck.graph.checkpoint import shutdown_checkpointer, startup_checkpointer
 from factcheck.llm.ollama import check_ollama_health
 
 
@@ -21,8 +22,14 @@ def _parse_cors_origins(origins: str) -> list[str]:
 async def lifespan(app: FastAPI):
     """Application startup and shutdown hooks."""
     settings = getattr(app.state, "settings", None) or get_settings()
+    if settings.demo_require_fallback:
+        settings.validate_search_demo_config()
     ensure_dialogue_tables(settings.sqlite_path)
-    yield
+    await startup_checkpointer(settings.sqlite_path)
+    try:
+        yield
+    finally:
+        await shutdown_checkpointer()
 
 
 def create_app(settings: AppSettings | None = None) -> FastAPI:

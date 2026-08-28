@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from factcheck.verifier.schemas import VerifierState
+from factcheck.verifier.schemas import EvidenceItem
 from factcheck.verifier.utils.claim_result import (
     build_claim_result,
     build_claim_result_from_state,
@@ -70,6 +71,60 @@ def test_build_claim_result_from_state_uses_verifier_state_fields() -> None:
     assert result["source_sentence"] == "Water boils at 100C at sea level."
     assert result["fidelity_status"] == "faithful"
     assert "processing_status" not in result
+
+
+def test_claim_result_limits_dialogue_evidence_to_two_short_snippets() -> None:
+    state = VerifierState(
+        claim_text="Water boils at 100C.",
+        evidence=[
+            EvidenceItem(
+                url="https://example.com/one",
+                snippet="one " * 100,
+                is_influential=False,
+            ),
+            EvidenceItem(
+                url="https://example.com/two",
+                snippet="two " * 100,
+                is_influential=True,
+            ),
+            EvidenceItem(
+                url="https://example.com/three",
+                snippet="three " * 100,
+                is_influential=True,
+            ),
+        ],
+    )
+
+    result = build_claim_result_from_state(
+        state,
+        verdict="SUPPORTED",
+        confidence=0.9,
+        reasoning="Supported.",
+    )
+
+    assert len(result["dialogue_evidence"]) == 2
+    assert result["dialogue_evidence"][0].startswith("two")
+    assert all(len(item.split()) <= 60 for item in result["dialogue_evidence"])
+
+
+def test_claim_result_uses_first_ranked_evidence_when_none_is_influential() -> None:
+    state = VerifierState(
+        claim_text="Water boils at 100C.",
+        evidence=[
+            EvidenceItem(url="https://example.com/one", snippet="first"),
+            EvidenceItem(url="https://example.com/two", snippet="second"),
+            EvidenceItem(url="https://example.com/three", snippet="third"),
+        ],
+    )
+
+    result = build_claim_result_from_state(
+        state,
+        verdict="SUPPORTED",
+        confidence=0.9,
+        reasoning="Supported.",
+    )
+
+    assert result["dialogue_evidence"] == ["first", "second"]
 
 
 def test_is_processing_error_only_true_for_error_status() -> None:

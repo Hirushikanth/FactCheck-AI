@@ -2,7 +2,7 @@ from typing import get_args
 
 from factcheck.state import ClaimResult, FactCheckState, PipelineStatus, ProcessingStatus, Verdict
 from factcheck.verifier import config as verifier_config
-from factcheck.verifier.schemas import CachedEvaluation, EvidenceItem, IntermediateAssessment, VerifierState
+from factcheck.verifier.schemas import EvidenceItem, IntermediateAssessment, VerifierState
 
 
 def test_pipeline_status_values_are_frozen() -> None:
@@ -28,6 +28,7 @@ def test_claim_result_fields_match_architecture_contract() -> None:
         "verdict",
         "confidence",
         "evidence",
+        "dialogue_evidence",
         "sources",
         "reasoning",
         "search_queries",

@@ -49,6 +49,55 @@ def _truncate_query(query: str, max_len: int = 80) -> str:
     return query[: max_len - 3] + "..."
 
 
+async def _post_json_with_retry(
+    *,
+    provider_name: str,
+    url: str,
+    headers: dict[str, str] | None,
+    payload: dict[str, object],
+    settings: AppSettings,
+) -> dict[str, object]:
+    """POST JSON with bounded retries for transient provider failures."""
+
+    for attempt in range(settings.search_api_max_retries):
+        retryable_error: Exception | None = None
+        try:
+            async with httpx.AsyncClient(timeout=settings.search_api_timeout_seconds) as client:
+                request_kwargs: dict[str, object] = {"json": payload}
+                if headers is not None:
+                    request_kwargs["headers"] = headers
+                response = await client.post(url, **request_kwargs)
+            response.raise_for_status()
+            return response.json()
+        except (httpx.TimeoutException, httpx.NetworkError) as exc:
+            retryable_error = exc
+        except httpx.HTTPStatusError as exc:
+            status_code = exc.response.status_code if exc.response is not None else None
+            if status_code != 429 and (status_code is None or not 500 <= status_code <= 599):
+                raise
+            retryable_error = exc
+
+        if attempt + 1 >= settings.search_api_max_retries:
+            assert retryable_error is not None
+            raise retryable_error
+
+        delay = _jittered_backoff(
+            attempt,
+            settings.search_api_retry_base_delay,
+            settings.search_api_retry_max_delay,
+        )
+        logger.warning(
+            "%s search request failed (attempt %d/%d); retrying in %.1fs",
+            provider_name,
+            attempt + 1,
+            settings.search_api_max_retries,
+            delay,
+        )
+        await asyncio.sleep(delay)
+
+    raise RuntimeError(f"{provider_name} retry loop exited unexpectedly")
+
+
 async def _enforce_ddg_spacing(settings: AppSettings) -> None:
     """Enforce minimum spacing between DDG requests using a global async lock."""
 
@@ -175,20 +224,21 @@ class TavilyProvider:
         self.api_key = api_key
 
     async def search(self, query: str, max_results: int) -> list[SearchHit]:
-        async with httpx.AsyncClient(timeout=30) as client:
-            response = await client.post(
-                "https://api.tavily.com/search",
-                json={
-                    "api_key": self.api_key,
-                    "query": query,
-                    "max_results": max_results,
-                    "search_depth": "basic",
-                    "include_answer": False,
-                    "include_raw_content": True,
-                },
-            )
-            response.raise_for_status()
-            payload = response.json()
+        settings = get_settings()
+        payload = await _post_json_with_retry(
+            provider_name=self.name,
+            url="https://api.tavily.com/search",
+            headers=None,
+            payload={
+                "api_key": self.api_key,
+                "query": query,
+                "max_results": max_results,
+                "search_depth": "basic",
+                "include_answer": False,
+                "include_raw_content": True,
+            },
+            settings=settings,
+        )
 
         hits: list[SearchHit] = []
         for result in payload.get("results", []):
@@ -215,14 +265,14 @@ class SerperProvider:
         self.api_key = api_key
 
     async def search(self, query: str, max_results: int) -> list[SearchHit]:
-        async with httpx.AsyncClient(timeout=30) as client:
-            response = await client.post(
-                "https://google.serper.dev/search",
-                headers={"X-API-KEY": self.api_key, "Content-Type": "application/json"},
-                json={"q": query, "num": max_results},
-            )
-            response.raise_for_status()
-            payload = response.json()
+        settings = get_settings()
+        payload = await _post_json_with_retry(
+            provider_name=self.name,
+            url="https://google.serper.dev/search",
+            headers={"X-API-KEY": self.api_key, "Content-Type": "application/json"},
+            payload={"q": query, "num": max_results},
+            settings=settings,
+        )
 
         return [
             SearchHit(

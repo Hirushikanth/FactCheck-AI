@@ -16,7 +16,7 @@ import time
 from unittest.mock import AsyncMock, MagicMock
 
 
-from factcheck.dialogue.schemas import DialogueTurn
+from factcheck.dialogue.schemas import DialogueState, DialogueTurn
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -374,3 +374,39 @@ async def test_out_of_scope_bypasses_rewrite(monkeypatch) -> None:
     # Rewriter NOT called for out_of_scope even though 'this' is in message
     mocks["rewriter"].ainvoke.assert_not_called()
     assert result["dialogue_response"] is not None
+
+
+async def test_assemble_context_caps_factcheck_context_after_extras() -> None:
+    from factcheck.dialogue.config import MAX_FC_CONTEXT_TOKENS, SYSTEM_PROMPT_TOKENS
+    from factcheck.dialogue.nodes.assemble_context import assemble_context_node
+    from factcheck.dialogue.utils.tokens import estimate_tokens
+
+    state = DialogueState(
+        session_id="context-cap-session",
+        original_text="original " * 500,
+        claim_results=[],
+        final_report="report " * 500,
+        fact_check_runs=[],
+        _latest_run_sequence=0,
+        _compressed_fc_context="cached context " * 500,
+        _fc_context_covers_sequence=0,
+        dialogue_history=[],
+        conversation_summary=None,
+        current_user_message="What was the verdict?",
+        classified_intent="clarification",
+        rewritten_query=None,
+        dialogue_response=None,
+        _assembled_messages=None,
+        estimated_context_tokens=0,
+        needs_compression=False,
+        needs_new_factcheck=False,
+        new_claim_text=None,
+        error_message=None,
+    )
+
+    result = await assemble_context_node(state)
+    system = result["_assembled_messages"][0]["content"]
+
+    # The system prompt has a fixed instruction block plus the globally capped
+    # fact-check context and a small amount of chat-formatting overhead.
+    assert estimate_tokens(system) <= SYSTEM_PROMPT_TOKENS + MAX_FC_CONTEXT_TOKENS + 250

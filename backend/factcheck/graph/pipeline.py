@@ -17,6 +17,7 @@ from factcheck.agents.extractor import extractor_node
 from factcheck.agents.orchestrator import orchestrator_node
 from factcheck.agents.reporter import reporter_node
 from factcheck.agents.verifier import verifier_node
+from factcheck.graph.checkpoint import get_checkpointer, thread_config
 from factcheck.state import FactCheckState
 
 
@@ -35,7 +36,7 @@ def build_graph():
     graph.add_edge("verifier", "reporter")
     graph.add_edge("reporter", END)
 
-    return graph.compile()
+    return graph.compile(checkpointer=get_checkpointer())
 
 
 def _initial_state(
@@ -68,6 +69,7 @@ async def run_factcheck_pipeline(
 
     graph = build_graph()
     result: FactCheckState = await graph.ainvoke(
-        _initial_state(session_id=session_id, text=text, extraction_mode=extraction_mode)
+        _initial_state(session_id=session_id, text=text, extraction_mode=extraction_mode),
+        config=thread_config(session_id),
     )
     return result
